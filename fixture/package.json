@@ -1,0 +1,5 @@
+{
+  "name": "scoped-action-fixture",
+  "private": true,
+  "devDependencies": { "semver": "7.7.2" }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "pnpm-scoped-fetch-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "node demo.mjs",
+    "demo:groups": "node demo.mjs --groups",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=24" }
+}

@@ -1,0 +1,54 @@
+name: Verify scoped cache on a fresh runner
+description: Download the prototype and exercise the real scoped-store Action.
+inputs:
+  expected-hit:
+    description: Expected exact cache hit, true or false.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: prototype-pnpm-linux-x64
+        path: ${{ runner.temp }}/pnpm-prototype
+    - name: Verify executable
+      shell: bash
+      working-directory: ${{ runner.temp }}/pnpm-prototype
+      run: |
+        sha256sum --check pnpm.sha256
+        chmod +x pnpm
+        ./pnpm --version
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: '24'
+        package-manager-cache: false
+    - name: Fetch web dependencies with the real GitHub cache
+      id: deps
+      uses: ./
+      env:
+        PNPM_CONFIG_OFFLINE: ${{ inputs.expected-hit }}
+      with:
+        pnpm-binary: ${{ runner.temp }}/pnpm-prototype/pnpm
+        working-directory: fixture
+        filters: '{apps/web}...'
+        include-workspace-root: 'true'
+        cache-salt: smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        save-cache: ${{ inputs.expected-hit == 'false' }}
+    - name: Check the cache result and install offline
+      shell: bash
+      env:
+        EXPECTED_HIT: ${{ inputs.expected-hit }}
+        CACHE_HIT: ${{ steps.deps.outputs.cache-hit }}
+        PNPM_BINARY: ${{ steps.deps.outputs.pnpm-binary }}
+        PNPM_STORE_DIR: ${{ steps.deps.outputs.store-dir }}
+        CACHE_KEY: ${{ steps.deps.outputs.cache-key }}
+      run: |
+        if [ "$EXPECTED_HIT" = true ]; then
+          test "$CACHE_HIT" = true
+        else
+          test "$CACHE_HIT" != true
+        fi
+        "$PNPM_BINARY" --config.manage-package-manager-versions=false --dir fixture --store-dir "$PNPM_STORE_DIR" --filter '{apps/web}...' install --frozen-lockfile --offline
+        node fixture/assert-installed.mjs
+        git diff --exit-code -- fixture/pnpm-lock.yaml
+        printf 'Expected cache hit: %s\n\nCache hit: %s\n\nKey: %s\n\nOffline install succeeded.\n' "$EXPECTED_HIT" "${CACHE_HIT:-false}" "$CACHE_KEY" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,82 @@
+{
+  "fixture": {
+    "actionMode": true,
+    "adminMiB": 16,
+    "sparseDirectories": [
+      "apps/web",
+      "packages/ui"
+    ],
+    "cacheCodec": "tar + zstd level 3"
+  },
+  "results": [
+    {
+      "name": "baseline-full",
+      "pnpmVersion": "12.16.1",
+      "packageBytes": 17244092,
+      "packageRequests": [
+        "/admin-dep.tgz",
+        "/root-tool.tgz",
+        "/shared-dep.tgz",
+        "/web-dep.tgz"
+      ],
+      "storeBytes": 34485354,
+      "storeFiles": 25,
+      "cacheTransferBytes": 34492780,
+      "offlineInstall": true,
+      "lockfileUnchanged": true
+    },
+    {
+      "name": "baseline-filtered",
+      "pnpmVersion": "12.16.1",
+      "packageBytes": 17244092,
+      "packageRequests": [
+        "/admin-dep.tgz",
+        "/root-tool.tgz",
+        "/shared-dep.tgz",
+        "/web-dep.tgz"
+      ],
+      "storeBytes": 34485354,
+      "storeFiles": 25,
+      "cacheTransferBytes": 34492854,
+      "offlineInstall": true,
+      "lockfileUnchanged": true
+    },
+    {
+      "name": "candidate-full",
+      "pnpmVersion": "12.17.0",
+      "packageBytes": 17244092,
+      "packageRequests": [
+        "/admin-dep.tgz",
+        "/root-tool.tgz",
+        "/shared-dep.tgz",
+        "/web-dep.tgz"
+      ],
+      "storeBytes": 34485354,
+      "storeFiles": 25,
+      "cacheTransferBytes": 34492860,
+      "offlineInstall": true,
+      "lockfileUnchanged": true
+    },
+    {
+      "name": "candidate-filtered",
+      "pnpmVersion": "12.17.0",
+      "packageBytes": 461009,
+      "packageRequests": [
+        "/root-tool.tgz",
+        "/shared-dep.tgz",
+        "/web-dep.tgz"
+      ],
+      "storeBytes": 930622,
+      "storeFiles": 19,
+      "cacheTransferBytes": 469237,
+      "offlineInstall": true,
+      "lockfileUnchanged": true,
+      "actionColdFetch": true,
+      "actionWarmFetch": true
+    }
+  ],
+  "reduction": {
+    "packagePercent": 97.32656842702997,
+    "cachePercent": 98.63961121229147
+  }
+}

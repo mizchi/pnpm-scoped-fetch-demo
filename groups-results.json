@@ -1,0 +1,37 @@
+{
+  "pnpmVersion": "12.17.0",
+  "fixture": {
+    "entries": [
+      "apps/admin",
+      "apps/web"
+    ],
+    "workspaceLibraries": [
+      "packages/ui"
+    ],
+    "storeIndexFormat": "files",
+    "codec": "JSON + gzip level 3 (prototype)"
+  },
+  "chunks": 3,
+  "sharedChunks": 1,
+  "fullTransferBytes": 17316029,
+  "measurements": [
+    {
+      "entry": "apps/web",
+      "chunks": 2,
+      "cacheTransferBytes": 464744,
+      "offlineInstall": true,
+      "lockfileUnchanged": true
+    },
+    {
+      "entry": "apps/admin",
+      "chunks": 2,
+      "cacheTransferBytes": 16851285,
+      "offlineInstall": true,
+      "lockfileUnchanged": true
+    }
+  ],
+  "webReductionPercent": 97.316105210958,
+  "sharedChunkDownloadedOnce": true,
+  "webKeysUnchangedAfterAdminUpdate": true,
+  "sourceLockfileChanged": true
+}

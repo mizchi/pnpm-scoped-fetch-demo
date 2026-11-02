@@ -1,0 +1,78 @@
+name: Scoped pnpm fetch
+description: Restore and populate a dedicated pnpm store for a lockfile scope.
+inputs:
+  filters:
+    description: Newline-separated pnpm selectors. Requires pnpm with scoped fetch support.
+    required: true
+  pnpm-binary:
+    description: Preinstalled native pnpm binary, or a command on PATH.
+    default: pnpm
+  working-directory:
+    description: Workspace root containing pnpm-lock.yaml, relative to the checkout.
+    default: .
+  production-only:
+    description: Follow production workspace dependencies and exclude development packages.
+    default: 'false'
+  include-workspace-root:
+    description: Also fetch root dependencies needed by a later filtered install.
+    default: 'true'
+  cache-salt:
+    description: Additional cache fingerprint for configuration or patches outside the default paths.
+    default: ''
+  save-cache:
+    description: Save a cache on a miss. Set false for restore-only jobs.
+    default: 'true'
+outputs:
+  store-dir:
+    description: Dedicated store directory to pass to the following install.
+    value: ${{ steps.prepare.outputs.store-dir }}
+  cache-hit:
+    description: Whether the exact cache key was restored.
+    value: ${{ steps.restore.outputs.cache-hit }}
+  cache-key:
+    description: Cache key including scope, dependency inputs, environment, and the pnpm binary.
+    value: ${{ steps.prepare.outputs.cache-key }}
+  pnpm-binary:
+    description: Resolved binary used by this action, with automatic version switching disabled.
+    value: ${{ steps.prepare.outputs.pnpm-binary }}
+  pnpm-version:
+    description: Version reported by the selected pnpm binary.
+    value: ${{ steps.prepare.outputs.pnpm-version }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare scope and cache key
+      id: prepare
+      shell: bash
+      env:
+        SCOPED_FILTERS: ${{ inputs.filters }}
+        SCOPED_PNPM_BINARY: ${{ inputs.pnpm-binary }}
+        SCOPED_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        SCOPED_PRODUCTION_ONLY: ${{ inputs.production-only }}
+        SCOPED_INCLUDE_WORKSPACE_ROOT: ${{ inputs.include-workspace-root }}
+        SCOPED_CACHE_SALT: ${{ inputs.cache-salt }}
+        SCOPED_DEPENDENCY_HASH: ${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/pnpm-workspace.yaml', inputs.working-directory), format('{0}/**/package.json', inputs.working-directory), format('{0}/.npmrc', inputs.working-directory), format('{0}/.pnpmfile.*', inputs.working-directory), format('{0}/patches/**', inputs.working-directory), '!**/node_modules/**', '!**/.git/**') }}
+      run: node "$GITHUB_ACTION_PATH/action/scoped-fetch.mjs" prepare
+
+    - name: Restore scoped store
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.prepare.outputs.store-dir }}
+        key: ${{ steps.prepare.outputs.cache-key }}
+
+    - name: Fetch selected dependencies
+      shell: bash
+      env:
+        SCOPED_PLAN_PATH: ${{ steps.prepare.outputs.plan-path }}
+      run: node "$GITHUB_ACTION_PATH/action/scoped-fetch.mjs" fetch
+
+    - name: Save scoped store
+      if: ${{ inputs.save-cache == 'true' && steps.restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.prepare.outputs.store-dir }}
+        key: ${{ steps.prepare.outputs.cache-key }}
+branding:
+  icon: download
+  color: orange

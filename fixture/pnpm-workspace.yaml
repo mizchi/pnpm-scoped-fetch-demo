@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - packages/*
+trustLockfile: true
+updateNotifier: false
+virtualStoreType: project
