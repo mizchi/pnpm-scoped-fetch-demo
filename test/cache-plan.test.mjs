@@ -43,7 +43,7 @@ test('a scoped store is an independent baseline and cannot masquerade as the ful
   const object = { kind: 'scoped', id: digest('d'), rawBytes: 1000, fileCount: 4 }
   const plan = { version: 1, query: scopedQuery, layout: 'v11', objects: [object] }
   assert.doesNotThrow(() => validateThinPlan(plan, scopedQuery))
-  assert.equal(cachePath(object), '.pnpm-cache/scoped-store')
+  assert.equal(cachePath(object), `.pnpm-cache/scoped-stores/${object.id}`)
   assert.notEqual(cachePath(object), cachePath({ ...object, kind: 'whole' }))
   assert.throws(() => validateThinPlan({ ...plan, objects: [{ ...object, kind: 'whole' }] }, scopedQuery), /composition/)
 })

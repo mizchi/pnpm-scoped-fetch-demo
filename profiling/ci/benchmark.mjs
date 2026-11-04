@@ -64,14 +64,14 @@ async function publish(context, transport, namespace) {
       records.push({ object: plan.index, source: data.indexes[entry].archive })
     }
   }
-  for (const kind of ['whole', 'scoped']) {
-    const scope = kind === 'whole' ? 'workspace' : 'sdk', files = data.inventories[scope]
+  for (const { entry, strategy: kind } of scenarios.filter(row => row.strategy !== 'chunks')) {
+    const scope = kind === 'whole' ? 'workspace' : entry, files = data.inventories[scope]
     const object = { kind, id: sha256(canonicalJson({ files, index: data.indexes[scope].sha256 })),
       rawBytes: files.reduce((sum, file) => sum + file.size, 0), fileCount: files.length }
-    const plan = { version: 1, layout: data.full.layout, query: queryFor(context.context, 'sdk', 0, kind), objects: [object] }
+    const plan = { version: 1, layout: data.full.layout, query: queryFor(context.context, entry, 0, kind), objects: [object] }
     validateThinPlan(plan, plan.query); plans.push(plan)
     records.push({ object, source: stageStore({ directory: path.join(root, cachePath(object)), layout: data.full.layout,
-      files, sourceFiles: data.full.sourceFiles, indexDirectory: kind === 'whole' ? store : path.join(exportDirectory, 'index-sdk') }) })
+      files, sourceFiles: data.full.sourceFiles, indexDirectory: kind === 'whole' ? store : path.join(exportDirectory, `index-${entry}`) }) })
   }
   const saves = await transport.publishMany(records)
   assert(saves.every(row => !row.hit), 'Run-specific data objects must start cold')

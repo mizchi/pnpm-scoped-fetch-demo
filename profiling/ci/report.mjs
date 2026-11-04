@@ -41,6 +41,8 @@ export function summarize(rows) {
       assert(row, `Missing sample: ${entry}/${strategy}/${targetBytes}/${sample}`)
       assert.equal(row.cacheHits, row.totalObjects, 'Cache miss in a warm sample')
       assert(row.totalObjects > 0 && row.totalProviderBytes > 0, 'Missing provider measurement')
+      assert.equal(row.cacheObjects.length, row.totalObjects, 'Missing cache object measurements')
+      assert.equal(row.cacheObjects.reduce((sum, object) => sum + object.providerBytes, 0), row.totalProviderBytes, 'Cache object sizes differ from total')
       samples.push(row)
     }
     const group = { entry, strategy, targetBytes, samples: samples.length }
@@ -49,12 +51,22 @@ export function summarize(rows) {
   }
   assert.equal(consumers.length, scenarios.reduce((sum, row) => sum + row.repetitions, 0), 'Unexpected consumer samples')
   const baseline = groups[0].totalProviderBytes.median
-  const scoped = groups.find(group => group.strategy === 'scoped').totalProviderBytes.median
+  const scoped = new Map(groups.filter(group => group.strategy === 'scoped').map(group => [group.entry, group]))
   for (const group of groups) {
     group.providerBytesReductionPercent = (1 - group.totalProviderBytes.median / baseline) * 100
-    if (group.entry === 'sdk') group.providerBytesReductionVersusScopedPercent = (1 - group.totalProviderBytes.median / scoped) * 100
+    group.providerBytesReductionVersusScopedPercent = (1 - group.totalProviderBytes.median / scoped.get(group.entry).totalProviderBytes.median) * 100
   }
-  return { version: 2, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, cold, producer, groups, consumers }
+  const representatives = consumers.filter(row => row.sample === 1 && (row.strategy === 'scoped' || row.strategy === 'chunks' && row.targetBytes === 67108864))
+  const chunks = representatives.filter(row => row.strategy === 'chunks'), unique = new Map()
+  for (const object of chunks.flatMap(row => row.cacheObjects)) {
+    if (unique.has(object.key)) assert.equal(unique.get(object.key), object.providerBytes, 'Conflicting shared object sizes')
+    unique.set(object.key, object.providerBytes)
+  }
+  const storageComparison = { scopedStoresBytes: representatives.filter(row => row.strategy === 'scoped').reduce((sum, row) => sum + row.totalProviderBytes, 0),
+    chunkedReferenceBytes: chunks.reduce((sum, row) => sum + row.totalProviderBytes, 0),
+    chunkedUniqueBytes: [...unique.values()].reduce((sum, bytes) => sum + bytes, 0), chunkedUniqueObjects: unique.size }
+  storageComparison.reductionVersusScopedStoresPercent = (1 - storageComparison.chunkedUniqueBytes / storageComparison.scopedStoresBytes) * 100
+  return { version: 3, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, cold, producer, groups, storageComparison, consumers }
 }
 
 function readResults(directory) {
@@ -70,11 +82,12 @@ function readResults(directory) {
 function markdown(summary) {
   const mib = bytes => (bytes / 1048576).toFixed(2), seconds = ms => (ms / 1000).toFixed(2)
   const lines = ['# Directus cache benchmark', '', `Code: \`${summary.codeSha}\`. Node: \`${summary.context.node}\`.`, '',
-    'Cache bytes are GitHub REST `size_in_bytes`, including the plan and the SDK outer tar/zstd wrapper. Times exclude runner setup, checkout, binary download, and tooling installation. Each sample uses a fresh runner. SDK strategies have three samples; app/API have one.', '',
+    'Cache bytes are GitHub REST `size_in_bytes`, including the plan and the SDK outer tar/zstd wrapper. Times exclude runner setup, checkout, binary download, and tooling installation. Each sample uses a fresh runner and a sparse checkout. Store baselines and SDK chunk strategies have three samples; app/API chunk strategies have one.', '',
     '| Scope | Strategy | Samples | Cache MiB | Reduction | Objects | Restore s | Hydrate s | Install s | Total s (median; min–max) |',
     '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
   for (const group of summary.groups) lines.push(`| ${group.entry} | ${group.strategy === 'whole' ? 'whole store' : group.strategy === 'scoped' ? 'scoped store' : `${group.targetBytes / 1048576} MiB chunks`} | ${group.samples} | ${mib(group.totalProviderBytes.median)} | ${group.providerBytesReductionPercent.toFixed(1)}% | ${group.totalObjects.median} | ${seconds(group.planRestoreMs.median + group.dataRestoreWallMs.median)} | ${seconds(group.hydrateMs.median)} | ${seconds(group.installMs.median)} | ${seconds(group.totalMs.median)}; ${seconds(group.totalMs.min)}–${seconds(group.totalMs.max)} |`)
   lines.push('', `Cold SDK: fetch ${seconds(summary.cold.fetchMs)} s, install ${seconds(summary.cold.installMs)} s, total ${seconds(summary.cold.totalMs)} s.`, '',
+    `Combined storage for app/API/SDK: independent scoped stores ${mib(summary.storageComparison.scopedStoresBytes)} MiB; unique 64 MiB chunk objects ${mib(summary.storageComparison.chunkedUniqueBytes)} MiB (${summary.storageComparison.reductionVersusScopedStoresPercent.toFixed(1)}% less). This storage saving does not remove downloads to fresh runners.`, '',
     `Producer: full fetch ${seconds(summary.producer.fetchMs)} s, scoped export ${seconds(summary.producer.exportMs)} s, total ${seconds(summary.producer.totalMs)} s.`, '',
     'The immutable public Directus lockfile is trusted for this benchmark (`trustLockfile: true`); install scripts are disabled. Every sample must pass frozen offline install, a module load, and unchanged lockfile checks. Transfer sizes exclude HTTP headers and control requests. Three samples describe this run; they do not establish p95 performance.', '')
   return lines.join('\n')

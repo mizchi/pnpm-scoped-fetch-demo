@@ -9,10 +9,12 @@ function measurements() {
     { ...metadata, kind: 'cold-sdk', query: { ...context, entry: 'sdk', mode: 'chunks', targetBytes: 67108864 }, checkout: { sparse: true, omittedImporters: ['app', 'api'] }, offlineInstall: true, moduleLoad: true, lockfileUnchanged: true },
     { ...metadata, kind: 'producer', context },
   ]
-  for (const [entry, strategy, targetBytes, repetitions] of [['sdk', 'whole', 0, 3], ['sdk', 'scoped', 0, 3], ['sdk', 'chunks', 67108864, 3], ['sdk', 'chunks', 16777216, 3], ['app', 'chunks', 67108864, 1], ['api', 'chunks', 67108864, 1]]) {
+  for (const [entry, strategy, targetBytes, repetitions] of [['sdk', 'whole', 0, 3], ['sdk', 'scoped', 0, 3], ['sdk', 'chunks', 67108864, 3], ['sdk', 'chunks', 16777216, 3], ['app', 'scoped', 0, 3], ['app', 'chunks', 67108864, 1], ['api', 'scoped', 0, 3], ['api', 'chunks', 67108864, 1]]) {
     for (let sample = 1; sample <= repetitions; sample++) rows.push({ ...metadata, kind: 'warm-consumer', entry, strategy, targetBytes, sample,
       query: { ...context, entry, mode: strategy, targetBytes }, checkout: { sparse: true, omittedImporters: entry === 'sdk' ? ['app', 'api'] : [] }, offlineInstall: true, moduleLoad: true, lockfileUnchanged: true,
       cacheHits: 2, totalObjects: 2, totalProviderBytes: strategy === 'whole' ? 1000 : 300, planBytes: 500,
+      cacheObjects: [{ key: `plan-${entry}-${strategy}-${targetBytes}`, providerBytes: 50 },
+        { key: strategy === 'chunks' ? 'shared-payload' : `${entry}-${strategy}`, providerBytes: strategy === 'whole' ? 950 : 250 }],
       planRestoreMs: 10, dataRestoreWallMs: 20, hydrateMs: 30, installMs: 40, totalMs: sample * 100 })
   }
   return rows
@@ -20,13 +22,16 @@ function measurements() {
 
 test('CI report compares complete independent samples and includes plan transfer', () => {
   const summary = summarize(measurements())
-  assert.equal(summary.consumers.length, 14)
+  assert.equal(summary.consumers.length, 20)
   const sdk = summary.groups.find(group => group.entry === 'sdk' && group.targetBytes === 67108864)
   assert.equal(sdk.totalMs.median, 200)
   assert.equal(sdk.totalMs.min, 100)
   assert.equal(sdk.totalMs.max, 300)
   assert.equal(sdk.providerBytesReductionPercent, 70)
   assert.equal(sdk.providerBytesReductionVersusScopedPercent, 0)
+  assert.equal(summary.storageComparison.scopedStoresBytes, 900)
+  assert.equal(summary.storageComparison.chunkedUniqueBytes, 400)
+  assert.equal(summary.storageComparison.chunkedUniqueObjects, 4)
 })
 
 test('CI report refuses incomplete, failed, or mixed-context measurements', () => {

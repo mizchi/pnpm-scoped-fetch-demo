@@ -19,7 +19,9 @@ The workflow runs these phases:
 
 The full-store baseline stores the native `files`, `index`, and `index-aliases` directories in one SDK cache entry. The scoped baseline stages only SDK payload files and its index, without an inner archive or custom hydration. Its payload fingerprint must match the independent native SDK fetch. Chunk entries contain precompressed archives, so the SDK adds an outer archive. The report includes its compressed size rather than counting only the inner payload. Plan transfer is included in every strategy.
 
-The scoped baseline isolates selection from chunking. A reduction against the full store cannot by itself establish a benefit from chunking. Summary version 2 requires all 14 warm samples and verifies that SDK consumer checkouts omit the unrelated app and API manifests.
+The scoped baseline isolates selection from chunking. A reduction against the full store cannot by itself establish a benefit from chunking. App and API also have independently cached scoped stores, with three samples each. The report compares their combined stored archive sizes with the distinct 64 MiB chunk objects referenced by app/API/SDK. This storage comparison includes each workload's plan and index; it does not count the full-workspace control or the alternative 16 MiB policy. A fresh runner still downloads its selected objects.
+
+Summary version 3 requires all 20 warm samples and verifies that SDK consumer checkouts omit the unrelated app and API manifests.
 
 CAFS paths encode SHA-512 content identities. Restoration validates these identities, archive SHA-256, file counts, expanded sizes, normalized permissions, safe paths, and index key identities before linking staged files into a fresh store. The plan digest comes from the producer output. Frozen offline install verifies usability without registry fallback.
 
