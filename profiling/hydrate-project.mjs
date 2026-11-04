@@ -37,6 +37,7 @@ function markerComplete({ object, layout, store, marker }) {
 
 export async function hydrateProject({ plan, store, stateDirectory, restore, archivePath }) {
   fs.mkdirSync(store, { recursive: true }); fs.mkdirSync(stateDirectory, { recursive: true })
+  const validationStart = performance.now()
   const requested = [], skipped = [], paths = new Map()
   for (const object of [plan.index, ...plan.objects]) {
     const marker = path.join(stateDirectory, `${object.id}.json`)
@@ -44,6 +45,7 @@ export async function hydrateProject({ plan, store, stateDirectory, restore, arc
     if (markerComplete({ object, layout: plan.layout, store, marker })) skipped.push(object)
     else requested.push(object)
   }
+  const validationMs = performance.now() - validationStart
   const started = performance.now(), restored = requested.length ? await restore(requested) : []
   if (restored.length !== requested.length || restored.some(row => !row.hit)) throw new ProjectCacheMiss('Required project cache object is missing')
   const restoreMs = performance.now() - started, hydrateStart = performance.now()
@@ -53,5 +55,5 @@ export async function hydrateProject({ plan, store, stateDirectory, restore, arc
     const marker = paths.get(object.id), temporary = `${marker}.${process.pid}.tmp`
     fs.writeFileSync(temporary, JSON.stringify({ id: object.id, files })); fs.renameSync(temporary, marker)
   }
-  return { restored, requestedObjects: requested.length, skippedObjects: skipped.length, restoreMs, hydrateMs: performance.now() - hydrateStart }
+  return { restored, requestedObjects: requested.length, skippedObjects: skipped.length, validationMs, restoreMs, hydrateMs: performance.now() - hydrateStart }
 }

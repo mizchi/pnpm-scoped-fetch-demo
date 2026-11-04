@@ -19,7 +19,7 @@ async function initialize({ project, filename, binary, store, cache, runInstall,
   const plan = cache && selectProjectPlan({ catalog: cache.catalog, context, importer: project.importer })
   if (cache && !cache.catalog.sourceManifests) throw new Error('Project catalog has no source manifest identities')
   const session = initializationSession({ filename, project, context, store, ignoreScripts, expectedManifests: cache?.catalog.sourceManifests })
-  let hydration = { restored: [], requestedObjects: 0, skippedObjects: 0, restoreMs: 0, hydrateMs: 0 }, cacheMode = 'native'
+  let hydration = { restored: [], requestedObjects: 0, skippedObjects: 0, validationMs: 0, restoreMs: 0, hydrateMs: 0 }, cacheMode = 'native'
   if (plan) {
     try {
       hydration = await hydrateProject({ ...cache, plan, store })

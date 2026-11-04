@@ -18,7 +18,9 @@ inputs:
     description: Directus workload.
   strategy:
     default: chunks
-    description: chunks, whole store, or scoped store baseline.
+    description: chunks, whole store, scoped store, or registry baseline.
+  store-object:
+    description: Trusted producer descriptor for the whole or scoped store baseline.
   target-bytes:
     default: '67108864'
     description: Uncompressed partition target.

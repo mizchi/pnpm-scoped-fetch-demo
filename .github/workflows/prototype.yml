@@ -184,6 +184,7 @@ jobs:
           github-token: ${{ github.token }}
           entry: ${{ matrix.entry || 'sdk' }}
           strategy: ${{ matrix.strategy || 'chunks' }}
+          store-object: ${{ matrix.storeObject || '' }}
           target-bytes: ${{ matrix.target || '67108864' }}
           sample: ${{ matrix.sample }}
           plan-digest: ${{ matrix.digest }}

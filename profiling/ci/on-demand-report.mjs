@@ -3,12 +3,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { statistics, readResults } from './report-common.mjs'
+import { currentDirectories, currentStrategies, currentScenarios } from './on-demand-cases.mjs'
 
 export function summarizeCurrentProjects(rows) {
   const producer = rows.find(row => row.kind === 'cwd-producer'), cold = rows.find(row => row.kind === 'cwd-cold')
   assert(producer && cold, 'Missing producer or cold measurement')
   const consumers = rows.filter(row => row.kind === 'cwd-consumer')
-  assert.equal(consumers.length, 6, 'Expected six fresh-runner samples')
+  assert.equal(consumers.length, 24, 'Expected 24 fresh-runner samples')
   for (const row of [cold, ...consumers]) {
     assert.deepEqual(row.context, producer.context, 'Mixed runtime context')
     for (const key of ['workflowRun', 'codeSha']) assert.equal(row[key], producer[key], `Mixed ${key}`)
@@ -21,43 +22,53 @@ export function summarizeCurrentProjects(rows) {
   assert.deepEqual(cold.measured.filters, [])
   assert.equal(cold.measured.lockfileUnchanged, true)
   const groups = []
-  for (const scenario of ['sdk', 'sequence']) {
-    const samples = consumers.filter(row => row.scenario === scenario).toSorted((left, right) => left.sample - right.sample)
+  for (const strategy of currentStrategies) for (const scenario of currentScenarios) {
+    const samples = consumers.filter(row => row.strategy === strategy && row.scenario === scenario).toSorted((left, right) => left.sample - right.sample)
     assert.deepEqual(samples.map(row => row.sample), [1, 2, 3], 'Missing or duplicate sample')
-    const expected = scenario === 'sdk' ? ['sdk'] : ['packages/system-data', 'sdk', 'sdk']
-    for (const row of samples) {
-      assert.equal(row.offlineInstall, true)
-      assert.deepEqual(row.steps.map(step => step.importer), expected)
-      assert.equal(row.objects.reduce((sum, object) => sum + object.providerBytes, 0), row.totalProviderBytes)
-      assert(row.objects.every(object => object.hit))
-      assert.equal(row.catalogProviderBytes + row.steps.reduce((sum, step) => sum + step.providerBytes, 0), row.totalProviderBytes)
-      for (const step of row.steps) {
-        assert.equal(step.lockfileUnchanged, true)
-        assert.equal(step.unrelatedInitialized, false)
-        assert.equal(step.sdkInitialized, step.importer === 'sdk')
-        assert.deepEqual(step.filters, [])
-      }
-    }
-    groups.push({ scenario, samples: samples.length, totalProviderBytes: statistics(samples.map(row => row.totalProviderBytes)),
-      totalMs: statistics(samples.map(row => row.totalMs)), steps: expected.map((importer, index) => ({ importer,
-        providerBytes: statistics(samples.map(row => row.steps[index].providerBytes)),
-        requestedObjects: statistics(samples.map(row => row.steps[index].requestedObjects)),
-        skippedObjects: statistics(samples.map(row => row.steps[index].skippedObjects)),
-        totalMs: statistics(samples.map(row => row.steps[index].totalMs)) })) })
+    const expected = currentDirectories(scenario)
+    for (const row of samples) validateConsumer(row, strategy, expected)
+    const fields = ['providerBytes', 'requestedObjects', 'skippedObjects', 'validationMs', 'restoreMs', 'hydrateMs', 'installMs', 'totalMs', 'otherMs']
+    groups.push({ strategy, scenario, samples: samples.length, validationPolicy: samples[0].validationPolicy,
+      totalProviderBytes: statistics(samples.map(row => row.totalProviderBytes)), totalMs: statistics(samples.map(row => row.totalMs)),
+      steps: expected.map((importer, index) => ({ importer, ...Object.fromEntries(fields.map(field => [field,
+        statistics(samples.map(row => field === 'otherMs' ? unassignedTime(row.steps[index]) : row.steps[index][field]))])) })) })
   }
-  return { version: 1, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, producer, cold, groups, consumers }
+  return { version: 2, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, producer, cold, groups, consumers }
+}
+
+function unassignedTime(step) { return step.totalMs - step.validationMs - step.restoreMs - step.hydrateMs - step.installMs }
+
+function validateConsumer(row, strategy, expected) {
+  assert.equal(row.offlineInstall, strategy !== 'registry')
+  assert.equal(row.validationPolicy, strategy === 'chunks' ? 'chunk-and-native' : 'native')
+  assert.equal(row.registryArchiveBytes, null, 'Registry traffic must not be reported as measured')
+  assert.deepEqual(row.steps.map(step => step.importer), expected)
+  assert.equal(row.objects.reduce((sum, object) => sum + object.providerBytes, 0), row.totalProviderBytes)
+  assert(row.objects.every(object => object.hit))
+  assert.equal(row.steps.reduce((sum, step) => sum + step.providerBytes, 0), row.totalProviderBytes)
+  if (strategy === 'registry') { assert.equal(row.objects.length, 0); assert.equal(row.totalProviderBytes, 0) }
+  else assert(row.objects.length > 0 && row.totalProviderBytes > 0)
+  for (const step of row.steps) {
+    assert.equal(step.lockfileUnchanged, true)
+    assert.equal(step.unrelatedInitialized, false)
+    assert.equal(step.sdkInitialized, step.importer === 'sdk')
+    assert.deepEqual(step.filters, [])
+    assert(unassignedTime(step) >= 0, 'Phase timings exceed initialization time')
+  }
 }
 
 function markdown(summary) {
   const mib = bytes => (bytes / 1048576).toFixed(2), seconds = ms => (ms / 1000).toFixed(2)
-  const sdk = summary.groups.find(group => group.scenario === 'sdk')
-  const lines = ['# Current-directory initialization', '', `Code: \`${summary.codeSha}\`. Catalog: ${summary.producer.metrics.projectCount} discovered importers, ${summary.producer.metrics.chunkCount} chunks, ${summary.producer.metrics.catalogBytes} JSON bytes.`, '',
-    `Fresh SDK initialization downloads ${mib(sdk.totalProviderBytes.median)} MiB including catalog and index. The full-store cache archive is ${mib(summary.producer.wholeStoreProviderBytes)} MiB (${(100 * (1 - sdk.totalProviderBytes.median / summary.producer.wholeStoreProviderBytes)).toFixed(1)}% fewer archive bytes). The full-store number is a byte-only control, without a timed restore in this experiment.`, '',
-    '| Scenario | Directory | New objects | Reused objects | Extra archive bytes | Init seconds (median; min–max) |',
-    '|---|---|---:|---:|---:|---:|']
-  for (const group of summary.groups) for (const step of group.steps) lines.push(`| ${group.scenario} | ${step.importer} | ${step.requestedObjects.median} | ${step.skippedObjects.median} | ${step.providerBytes.median} | ${seconds(step.totalMs.median)}; ${seconds(step.totalMs.min)}–${seconds(step.totalMs.max)} |`)
-  lines.push('', `Each scenario has three fresh runners. Catalog download is counted once per runner. Cold SDK current-directory initialization: ${seconds(summary.cold.measured.totalMs)} seconds. The initial global index is ${mib(summary.producer.metrics.globalIndexBytes)} MiB before the SDK cache wrapper.`, '',
-    'All consumers use sparse checkouts, a dedicated empty store, frozen offline install without filters, and recursiveInstall=false. SDK module loading and unchanged lockfiles are checked. The sequence retains its store between directories. Setup, checkout, tooling installation, and binary download are excluded. Cache bytes come from GitHub REST size_in_bytes; HTTP control traffic is excluded. This adapter currently targets registry packages in the pinned v9 lockfile, trusts that lockfile, uses a files index, and disables install scripts.', '')
+  const lines = ['# GitHub cache comparison on Directus', '', `Code: \`${summary.codeSha}\`. ${summary.producer.metrics.projectCount} importers, ${summary.producer.metrics.chunkCount} chunks.`, '',
+    'All cache arms publish and restore exact hits through the GitHub Actions cache SDK in this run. Registry is a separate online control; its network bytes are not measured. Every strategy/scenario has three fresh runners. Producer, setup, checkout, tooling installation, and binary download are excluded from consumer times.', '',
+    '| Strategy | Scenario | Cache MiB | Total seconds (median; min-max) |', '|---|---|---:|---:|']
+  for (const group of summary.groups) lines.push(`| ${group.strategy} | ${group.scenario} | ${group.strategy === 'registry' ? 'n/a' : mib(group.totalProviderBytes.median)} | ${seconds(group.totalMs.median)}; ${seconds(group.totalMs.min)}-${seconds(group.totalMs.max)} |`)
+  lines.push('', '| Strategy | Scenario / directory | New cache objects | Cache bytes | Reuse check s | Restore s | Hydrate s | Native install s | Step seconds (median; min-max) |',
+    '|---|---|---:|---:|---:|---:|---:|---:|---:|')
+  for (const group of summary.groups) for (const step of group.steps) lines.push(`| ${group.strategy} | ${group.scenario} / ${step.importer} | ${step.requestedObjects.median} | ${group.strategy === 'registry' ? 'n/a' : step.providerBytes.median} | ${seconds(step.validationMs.median)} | ${seconds(step.restoreMs.median)} | ${seconds(step.hydrateMs.median)} | ${seconds(step.installMs.median)} | ${seconds(step.totalMs.median)}; ${seconds(step.totalMs.min)}-${seconds(step.totalMs.max)} |`)
+  lines.push('', 'Upfront catalog/store restore time and bytes are charged to the first step. Restore includes the SDK outer archive download and extraction. Hydrate is inner chunk extraction and verification. Reuse check scans completed chunk markers and verifies their CAFS content. Phase medians are independent and need not sum to the median total.', '',
+    'Whole/scoped/registry controls use the normal native content verification policy. Chunk mode additionally verifies archive digests, CAFS identities, and completed payloads on reuse. This measures each implemented path; it does not isolate transport from the extra integrity policy. All paths use the same session guards, native binary, frozen lockfile, scripts-disabled configuration, and sparse source. Cache arms must complete offline. Module loading, untouched projects, and unchanged lockfiles are checked.', '',
+    `Producer: full fetch ${seconds(summary.producer.fetchMs)} s, global pack ${seconds(summary.producer.metrics.totalMs)} s, total including both single-store controls ${seconds(summary.producer.totalMs)} s. Cache byte counts use GitHub REST size_in_bytes and include the SDK wrapper. No HTTP control traffic or p95 estimate is included.`, '')
   return lines.join('\n')
 }
 
