@@ -3,7 +3,7 @@ description: Prepare tools, the verified native binary, and the pinned public mo
 inputs:
   scope:
     default: workspace
-    description: Workload to check out with its workspace dependencies.
+    description: Workload to check out, workspace, or tools-only to skip source checkout.
 runs:
   using: composite
   steps:
@@ -34,7 +34,7 @@ runs:
         path: benchmark-source
         persist-credentials: false
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      if: inputs.scope != 'workspace'
+      if: inputs.scope != 'workspace' && inputs.scope != 'tools-only'
       with:
         repository: directus/directus
         ref: e0444f46909d530c4af243313a5320571992a30c
@@ -44,7 +44,7 @@ runs:
           ${{ inputs.scope }}
           packages
     - shell: bash
-      if: inputs.scope != 'workspace'
+      if: inputs.scope != 'workspace' && inputs.scope != 'tools-only'
       env:
         CHECKOUT_SCOPE: ${{ inputs.scope }}
       run: node profiling/ci/checkout.mjs "$CHECKOUT_SCOPE"

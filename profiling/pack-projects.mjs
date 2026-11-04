@@ -9,6 +9,7 @@ import { lockfileGraph, readStore } from './native-store.mjs'
 import { selectStoreScope } from './scoped-index.mjs'
 import { writeTarChunk, verifyTarChunk } from './tar-zstd.mjs'
 import { workspaceContext } from './workspace-context.mjs'
+import { sourceManifests } from './source-manifests.mjs'
 
 export async function packProjects({ workspace, store, binary, directory, targetBytes = 67108864 }) {
   const started = performance.now(), context = await workspaceContext(workspace, binary)
@@ -45,7 +46,7 @@ export async function packProjects({ workspace, store, binary, directory, target
       if (records.length % 20 === 0) console.log(`Packed ${records.length - 1}/${Object.keys(manifest.chunks).length} project chunks`)
     }
     const material = { sourceLockfile: context.lockfile, context: { layout: full.layout }, manifest, archives }
-    const catalog = createProjectCatalog({ material, context, targetBytes }), bytes = Buffer.from(JSON.stringify(catalog))
+    const catalog = createProjectCatalog({ material, context, targetBytes, sourceManifests: sourceManifests(workspace, Object.keys(lockfile.importers)) }), bytes = Buffer.from(JSON.stringify(catalog))
     const object = { kind: 'catalog', id: catalogId(context, targetBytes), sha256: sha256(bytes), size: bytes.length }
     const filename = path.join(temporary, 'catalog.json'); fs.writeFileSync(filename, bytes); place(filename, object)
     fs.writeFileSync(path.join(directory, 'catalog.json'), bytes)

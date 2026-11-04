@@ -12,7 +12,7 @@ function checkedImporter(importer) {
       importer !== '.' && importer.split('/').some(part => !part || part === '.' || part === '..')) throw new Error(`Invalid importer: ${importer}`)
 }
 
-export function createProjectCatalog({ material, context, targetBytes }) {
+export function createProjectCatalog({ material, context, targetBytes, sourceManifests }) {
   const projects = {}, objects = {}
   let index
   for (const entry of Object.keys(material.manifest.entries).sort()) {
@@ -25,7 +25,10 @@ export function createProjectCatalog({ material, context, targetBytes }) {
     projects[entry] = plan.objects.map(object => object.id)
     for (const object of plan.objects) objects[object.id] = object
   }
-  const catalog = { version: 1, context, targetBytes, layout: material.context.layout, projects, objects, index }
+  if (sourceManifests) for (const importer of Object.keys(projects)) {
+    if (!/^[a-f0-9]{64}$/.test(sourceManifests[importer])) throw new Error(`Missing source manifest identity: ${importer}`)
+  }
+  const catalog = { version: 1, context, targetBytes, layout: material.context.layout, projects, objects, index, sourceManifests }
   if (Buffer.byteLength(JSON.stringify(catalog)) > MAX_CATALOG_BYTES) throw new Error('Project catalog exceeds its size limit')
   return catalog
 }

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { restoreTarChunk } from './tar-zstd.mjs'
 
 export class ProjectCacheMiss extends Error {}
@@ -24,6 +25,11 @@ function markerComplete({ object, layout, store, marker }) {
       const stat = fs.lstatSync(path.join(store, file.path))
       // Native installs may update index metadata after a chunk is hydrated.
       if (!stat.isFile() || stat.isSymbolicLink() || object.kind === 'cafs' && (stat.size !== file.size || (stat.mode & 0o777) !== file.mode)) return false
+      if (object.kind === 'cafs') {
+        const digest = createHash('sha512').update(fs.readFileSync(path.join(store, file.path))).digest('hex')
+        const expected = file.path.split('/').slice(-2).join('').replace(/-exec$/, '')
+        if (digest !== expected) throw new Error(`Content mismatch: ${file.path}`)
+      }
     } catch (error) { if (error.code === 'ENOENT') return false; throw error }
   }
   return true

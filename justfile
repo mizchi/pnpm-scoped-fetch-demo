@@ -33,3 +33,7 @@ cache-report directory="measurements":
 # Discover every lockfile importer and pack a fresh project catalog.
 pack-projects workspace store binary output target="67108864":
     node profiling/pack.mjs --workspace {{quote(workspace)}} --store {{quote(store)}} --pnpm {{quote(binary)}} --output {{quote(output)}} --target-bytes {{quote(target)}}
+
+# Compare all project orders and retry paths with a combined native install.
+consistency-check binary output:
+    node profiling/incremental-check.mjs --pnpm {{quote(binary)}} --output {{quote(output)}}

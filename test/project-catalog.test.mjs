@@ -32,3 +32,9 @@ test('foreign inputs, missing references, duplicate references, and traversal im
   const missing = structuredClone(catalog); delete missing.objects[hash('e')]
   assert.throws(() => selectProjectPlan({ catalog: missing, context, importer: 'apps/web' }), /Missing/)
 })
+
+test('producer manifest identities must cover all catalog importers', () => {
+  assert.throws(() => createProjectCatalog({ material, context, targetBytes: 64, sourceManifests: {} }), /source manifest identity/)
+  const sourceManifests = Object.fromEntries(Object.keys(material.manifest.entries).map(importer => [importer, hash('a')]))
+  assert.deepEqual(createProjectCatalog({ material, context, targetBytes: 64, sourceManifests }).sourceManifests, sourceManifests)
+})
