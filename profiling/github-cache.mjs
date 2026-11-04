@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import * as cache from '@actions/cache'
 import { cachePath, objectCacheKey, isStoreObject } from '../action/cache-plan.mjs'
+import { MAX_CATALOG_BYTES } from '../action/project-catalog.mjs'
 
 export async function fileDigest(filename) {
   const hash = createHash('sha256')
@@ -52,6 +53,7 @@ export function createGitHubCacheTransport({ root, namespace = 'shared', concurr
       if (stat.isSymbolicLink() || (isStoreObject(object) ? !stat.isDirectory() : !stat.isFile())) throw new Error(`Invalid cached object: ${key}`)
       if (object.size !== undefined && stat.size !== object.size) throw new Error(`Cached object size mismatch: ${key}`)
       if (object.kind === 'plan' && stat.size > 128 * 1024) throw new Error('Cache plan exceeds 128 KiB')
+      if (object.kind === 'catalog' && stat.size > MAX_CATALOG_BYTES) throw new Error('Project catalog exceeds its size limit')
     }
     return { key, hit, relative, restoreMs: performance.now() - started, innerBytes: hit && !isStoreObject(object) ? fs.statSync(path.join(root, relative)).size : 0 }
   }
@@ -68,7 +70,7 @@ export function createGitHubCacheTransport({ root, namespace = 'shared', concurr
       }
     }
     if (!isStoreObject(object)) {
-      const expected = object.kind === 'plan' ? object.sha256 : object.id
+      const expected = object.kind === 'plan' || object.kind === 'catalog' ? object.sha256 : object.id
       if (expected && await fileDigest(destination) !== expected) throw new Error(`Publish content mismatch: ${key}`)
     }
     const started = performance.now()

@@ -3,7 +3,9 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { parse, stringify } from 'yaml'
 import { sha256 } from '../../action/cache-groups.mjs'
-import { fileDigest } from '../github-cache.mjs'
+import { cacheInventory } from '../github-cache.mjs'
+import { workspaceContext } from '../workspace-context.mjs'
+import { pinnedBinaryEnvironment } from '../native-environment.mjs'
 
 export const root = process.cwd()
 export const source = path.join(root, 'benchmark-source')
@@ -23,16 +25,15 @@ export function childEnvironment(offline = false) {
   fs.mkdirSync(config, { recursive: true }); fs.writeFileSync(path.join(config, 'empty-npmrc'), '')
   return { ...env, CI: 'true', XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(state, 'metadata'), XDG_STATE_HOME: path.join(state, 'state'),
     PNPM_CONFIG_NPMRC_AUTH_FILE: path.join(config, 'empty-npmrc'), PNPM_CONFIG_OFFLINE: String(offline),
-    npm_config_manage_package_manager_versions: 'false', NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS: 'false',
-    pnpm_config_manage_package_manager_versions: 'false', PNPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS: 'false' }
+    ...pinnedBinaryEnvironment }
 }
 
-export async function command(program, args, { cwd = source, offline = false, name = 'command' } = {}) {
+export async function command(program, args, { cwd = source, offline = false, name = 'command', environment } = {}) {
   fs.mkdirSync(results, { recursive: true })
   const filename = path.join(results, `${name}.log`), log = fs.openSync(filename, 'w')
   const started = performance.now()
   const status = await new Promise((resolve, reject) => {
-    const child = spawn(program, args, { cwd, env: childEnvironment(offline), stdio: ['ignore', log, log] })
+    const child = spawn(program, args, { cwd, env: environment ?? childEnvironment(offline), stdio: ['ignore', log, log] })
     child.once('error', reject); child.once('exit', code => resolve(code))
   }).finally(() => fs.closeSync(log))
   const text = fs.readFileSync(filename, 'utf8')
@@ -52,13 +53,21 @@ export async function prepareSource() {
   settings.virtualStoreType = 'project'
   fs.writeFileSync(configFile, stringify(settings))
   const lockfile = fs.readFileSync(path.join(source, 'pnpm-lock.yaml'))
-  const context = { version: 1, lockfile: sha256(lockfile), configuration: sha256(fs.readFileSync(configFile)),
-    pnpm: await fileDigest(binary), platform: process.platform, arch: process.arch, node: process.versions.node }
+  const context = await workspaceContext(source, binary)
   const version = await command(binary, ['--version'], { name: 'version' })
   if (!/^12\./.test(version.text.trim())) throw new Error(`Expected pnpm v12, got ${version.text.trim()}`)
   const checkoutFile = path.join(results, 'checkout.json')
   const checkout = fs.existsSync(checkoutFile) ? JSON.parse(fs.readFileSync(checkoutFile, 'utf8')) : { sparse: false }
   return { binary, context, lockfile: parse(lockfile.toString()), pnpmVersion: version.text.trim(), checkout }
+}
+
+export async function providerSizes(namespace, keys) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const entries = await cacheInventory({ repository: process.env.GITHUB_REPOSITORY, token: input('github-token'), namespace, ref: process.env.GITHUB_REF })
+    if (keys.every(key => entries.has(key))) return entries
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  throw new Error('Published cache sizes did not appear in the repository inventory')
 }
 
 export function queryFor(context, entry, targetBytes, mode = 'chunks') { return { ...context, entry, mode, targetBytes: mode === 'chunks' ? targetBytes : 0 } }

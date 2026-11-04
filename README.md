@@ -1,5 +1,8 @@
 # Scoped pnpm fetch action
 
+For initialization inferred from the current package directory, see the [current-project prototype](profiling/CURRENT_PROJECT.md). It discovers all importers automatically and shares immutable chunks between projects.
+
+
 The experimental [cache groups prototype](./CACHE_GROUPS.md) splits an `apps/*` and `packages/*` workspace into shared and app-specific chunks. Its local demo measures selective transfer and reuse after an unrelated app update.
 
 Restore, populate, and save a dedicated pnpm store for a selected lockfile scope. The following install or build step consumes the store through the `store-dir` output.

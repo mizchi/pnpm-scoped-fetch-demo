@@ -92,6 +92,21 @@ test('existing symlink parents and files cannot redirect or overwrite restoratio
   assert.equal(fs.readFileSync(target, 'utf8'), 'existing')
 })
 
+test('incremental hydration reuses verified existing files and refuses conflicting content', async t => {
+  const directory = temporary(t), filename = path.join(directory, 'archive')
+  const archive = await writeTarChunk({ chunk, source, filename })
+  const store = path.join(directory, 'store'); fs.mkdirSync(store)
+  const options = { chunk, archiveSha256: archive.sha256, directory: store, reuseExisting: true }
+  const files = await restoreTarChunk({ ...options, input: fs.createReadStream(filename) })
+  assert.equal(files.length, chunk.files.length)
+  const target = path.join(store, chunk.files[0].path), inode = fs.statSync(target).ino
+  await restoreTarChunk({ ...options, input: fs.createReadStream(filename) })
+  assert.equal(fs.statSync(target).ino, inode)
+  fs.chmodSync(target, 0o644); fs.writeFileSync(target, 'wrong bytes')
+  await assert.rejects(restoreTarChunk({ ...options, input: fs.createReadStream(filename) }), /Content mismatch/)
+  assert.equal(fs.readFileSync(target, 'utf8'), 'wrong bytes')
+})
+
 test('archive bytes do not depend on source stream fragmentation', async t => {
   const directory = temporary(t)
   const bytes = Buffer.from(Array.from({ length: 40000 }, (_, index) => `export const value${index} = ${index}; // repeated package content\n`).join(''))

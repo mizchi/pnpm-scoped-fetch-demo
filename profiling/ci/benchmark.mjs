@@ -6,11 +6,11 @@ import { createThinPlan, validateThinPlan, planId, cachePath, isStoreObject } fr
 import { lockfileGraph, readStore } from '../native-store.mjs'
 import { exportStoreScopes } from '../export-scopes.mjs'
 import { writeTarChunk, verifyTarChunk, restoreTarChunk } from '../tar-zstd.mjs'
-import { createGitHubCacheTransport, cacheInventory, fileDigest } from '../github-cache.mjs'
+import { createGitHubCacheTransport, fileDigest } from '../github-cache.mjs'
 import { fileURLToPath } from 'node:url'
 import { stageStore } from '../store-staging.mjs'
 import { scenarios } from './scenarios.mjs'
-import { root, source, state, results, input, json, output, command, prepareSource, queryFor, installAndCheck } from './common.mjs'
+import { root, source, state, results, input, json, output, command, prepareSource, queryFor, installAndCheck, providerSizes } from './common.mjs'
 
 function elapsed(start) { return performance.now() - start }
 function objectForPlan(query, sha, size) { return { kind: 'plan', id: planId(query), sha256: sha, size } }
@@ -99,15 +99,6 @@ async function publish(context, transport, namespace) {
     scopeMeasurements: data.measurements, totalMs: elapsed(started), trustLockfile: true })
 }
 
-async function providerSizes(namespace, keys) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const entries = await cacheInventory({ repository: process.env.GITHUB_REPOSITORY, token: input('github-token'), namespace, ref: process.env.GITHUB_REF })
-    if (keys.every(key => entries.has(key))) return entries
-    await new Promise(resolve => setTimeout(resolve, 1000))
-  }
-  throw new Error('Published cache sizes did not appear in the repository inventory')
-}
-
 async function consume(context, transport, namespace) {
   const entry = input('entry', 'sdk'), strategy = input('strategy', 'chunks'), targetBytes = Number(input('target-bytes', '67108864'))
   const query = queryFor(context.context, entry, targetBytes, strategy), started = performance.now()
@@ -149,7 +140,8 @@ export async function main() {
   const context = await prepareSource(), namespace = input('namespace', 'shared')
   const transport = createGitHubCacheTransport({ root, namespace, concurrency: 4 })
   const mode = input('mode', 'consume')
-  if (mode === 'cold') await cold(context, transport)
+  if (mode.startsWith('cwd-')) await (await import('./on-demand.mjs')).onDemand(mode, context, transport, namespace)
+  else if (mode === 'cold') await cold(context, transport)
   else if (mode === 'publish') await publish(context, transport, namespace)
   else if (mode === 'consume') await consume(context, transport, namespace)
   else throw new Error(`Unknown benchmark mode: ${mode}`)

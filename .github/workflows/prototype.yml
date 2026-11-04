@@ -2,6 +2,11 @@ name: Benchmark chunked cache on Directus
 on:
   workflow_dispatch:
     inputs:
+      experiment:
+        description: Benchmark workload
+        type: choice
+        options: [on-demand, scoped-controls]
+        default: on-demand
       pnpm-ref:
         description: mizchi/pnpm commit to build
         type: string
@@ -97,7 +102,7 @@ jobs:
       - uses: ./.github/actions/cache-groups
         id: measure
         with:
-          mode: cold
+          mode: ${{ inputs.experiment == 'scoped-controls' && 'cold' || 'cwd-cold' }}
           namespace: ${{ env.CACHE_NAMESPACE }}
           github-token: ${{ github.token }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -123,7 +128,7 @@ jobs:
       - uses: ./.github/actions/cache-groups
         id: measure
         with:
-          mode: publish
+          mode: ${{ inputs.experiment == 'scoped-controls' && 'publish' || 'cwd-publish' }}
           namespace: ${{ env.CACHE_NAMESPACE }}
           expected-sdk-fingerprint: ${{ needs.cold.outputs.sdk-fingerprint }}
           github-token: ${{ github.token }}
@@ -150,15 +155,16 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/cache-benchmark-setup
         with:
-          scope: ${{ matrix.entry }}
+          scope: ${{ matrix.entry || 'sdk' }}
       - uses: ./.github/actions/cache-groups
         with:
-          mode: consume
+          mode: ${{ inputs.experiment == 'scoped-controls' && 'consume' || 'cwd-consume' }}
+          scenario: ${{ matrix.scenario || 'sdk' }}
           namespace: ${{ needs.producer.outputs.namespace }}
           github-token: ${{ github.token }}
-          entry: ${{ matrix.entry }}
-          strategy: ${{ matrix.strategy }}
-          target-bytes: ${{ matrix.target }}
+          entry: ${{ matrix.entry || 'sdk' }}
+          strategy: ${{ matrix.strategy || 'chunks' }}
+          target-bytes: ${{ matrix.target || '67108864' }}
           sample: ${{ matrix.sample }}
           plan-digest: ${{ matrix.digest }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -185,7 +191,15 @@ jobs:
         with:
           pattern: cache-benchmark-*
           path: measurements
-      - run: node profiling/ci/report.mjs measurements
+      - name: Validate and summarize measurements
+        env:
+          EXPERIMENT: ${{ inputs.experiment }}
+        run: |
+          if [ "$EXPERIMENT" = scoped-controls ]; then
+            node profiling/ci/report.mjs measurements
+          else
+            node profiling/ci/on-demand-report.mjs measurements
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:

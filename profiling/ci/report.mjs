@@ -3,13 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scenarios } from './scenarios.mjs'
-
-function statistics(values) {
-  assert(values.every(value => Number.isFinite(value) && value >= 0), 'Invalid measurement')
-  const sorted = values.toSorted((left, right) => left - right)
-  const middle = Math.floor(sorted.length / 2)
-  return { min: sorted[0], median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2, max: sorted.at(-1) }
-}
+import { statistics, readResults } from './report-common.mjs'
 
 function sameContext(query, context) {
   for (const [key, value] of Object.entries(context)) assert.equal(query[key], value, `Mixed benchmark context: ${key}`)
@@ -69,16 +63,6 @@ export function summarize(rows) {
   return { version: 3, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, cold, producer, groups, storageComparison, consumers }
 }
 
-function readResults(directory) {
-  const rows = []
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const filename = path.join(directory, entry.name)
-    if (entry.isDirectory()) rows.push(...readResults(filename))
-    else if (['cold.json', 'producer.json', 'consumer.json'].includes(entry.name)) rows.push(JSON.parse(fs.readFileSync(filename, 'utf8')))
-  }
-  return rows
-}
-
 function markdown(summary) {
   const mib = bytes => (bytes / 1048576).toFixed(2), seconds = ms => (ms / 1000).toFixed(2)
   const lines = ['# Directus cache benchmark', '', `Code: \`${summary.codeSha}\`. Node: \`${summary.context.node}\`.`, '',
@@ -95,7 +79,7 @@ function markdown(summary) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const directory = path.resolve(process.argv[2] ?? 'measurements')
-  const summary = summarize(readResults(directory)), text = markdown(summary)
+  const summary = summarize(readResults(directory, ['cold.json', 'producer.json', 'consumer.json'])), text = markdown(summary)
   fs.writeFileSync(path.join(directory, 'summary.json'), JSON.stringify(summary, null, 2) + '\n')
   fs.writeFileSync(path.join(directory, 'summary.md'), text)
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text)

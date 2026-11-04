@@ -22,6 +22,7 @@ export function cachePath(object) {
     case 'cafs': return `.pnpm-cache/objects/${object.id}.tar.zst`
     case 'index': return `.pnpm-cache/indexes/${object.id}.tar.zst`
     case 'plan': return `.pnpm-cache/plans/${object.id}.json`
+    case 'catalog': return `.pnpm-cache/catalogs/${object.id}.json`
     case 'whole': return '.pnpm-cache/whole-store'
     case 'scoped': return `.pnpm-cache/scoped-stores/${object.id}`
     default: throw new Error(`Unknown cache object kind: ${object.kind}`)

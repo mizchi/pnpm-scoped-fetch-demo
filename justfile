@@ -29,3 +29,7 @@ cache-benchmark branch="feat/github-cache-groups":
 # Summarize downloaded benchmark artifacts.
 cache-report directory="measurements":
     node profiling/ci/report.mjs {{quote(directory)}}
+
+# Discover every lockfile importer and pack a fresh project catalog.
+pack-projects workspace store binary output target="67108864":
+    node profiling/pack.mjs --workspace {{quote(workspace)}} --store {{quote(store)}} --pnpm {{quote(binary)}} --output {{quote(output)}} --target-bytes {{quote(target)}}

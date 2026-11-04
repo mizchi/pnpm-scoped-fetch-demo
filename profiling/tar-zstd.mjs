@@ -209,14 +209,25 @@ export async function verifyTarChunk(options) {
   await readTarChunk(options)
 }
 
-export async function restoreTarChunk({ directory, ...options }) {
+async function verifiedExisting(filename, file) {
+  let stat
+  try { stat = fs.lstatSync(filename) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Unsafe existing store file: ${filename}`)
+  const discard = new Writable({ write(_bytes, _encoding, callback) { callback() } })
+  await pipeline(fs.createReadStream(filename), file.metadata ? indexIdentityStream(file) : integrityStream(file), discard)
+  return true
+}
+
+export async function restoreTarChunk({ directory, reuseExisting = false, ...options }) {
   checkedDirectory(directory)
   const staged = fs.mkdtempSync(path.join(directory, '.chunk-'))
   try {
     const files = await readTarChunk({ ...options, stage: staged })
     for (const { file, filename } of files) {
       prepareParent(directory, file.path)
-      fs.linkSync(filename, path.join(directory, file.path))
+      const target = path.join(directory, file.path)
+      if (!reuseExisting || !await verifiedExisting(target, file)) fs.linkSync(filename, target)
     }
+    return files.map(({ file }) => ({ path: file.path, size: file.size, mode: file.mode }))
   } finally { fs.rmSync(staged, { recursive: true, force: true }) }
 }
