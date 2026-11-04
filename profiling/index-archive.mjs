@@ -8,7 +8,7 @@ export function archiveIndex({ store, paths, archive }) {
     ['tar', ['-cf', tar, '-C', store, ...paths]],
     ['zstd', ['-q', '-T1', '-3', '-f', tar, '-o', archive]],
   ]) {
-    const result = spawnSync(program, args, { encoding: 'utf8' })
+    const result = spawnSync(program, args, { encoding: 'utf8', env: { ...process.env, COPYFILE_DISABLE: '1' } })
     if (result.error) throw result.error
     if (result.status !== 0) throw new Error(`${program}: ${result.stderr}`)
   }
