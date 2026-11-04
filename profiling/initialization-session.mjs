@@ -43,10 +43,10 @@ function checkManifests(workspace, manifests) {
   for (const [importer, digest] of Object.entries(manifests)) if (current[importer] !== digest) throw new Error(`Project manifest changed: ${importer}`)
 }
 
-export function initializationSession({ filename, project, context, store, ignoreScripts, expectedManifests }) {
+export function initializationSession({ filename, project, context, store, ignoreScripts, expectedManifests, selection }) {
   fs.mkdirSync(store, { recursive: true }); store = fs.realpathSync(store)
   const saved = readSession(filename)
-  const lock = parse(fs.readFileSync(path.join(project.workspace, 'pnpm-lock.yaml'), 'utf8'))
+  const lock = selection ? undefined : parse(fs.readFileSync(path.join(project.workspace, 'pnpm-lock.yaml'), 'utf8'))
   if (saved) {
     if (saved.workspace !== project.workspace) throw new Error('Initialization workspace changed; use a fresh workspace')
     if (canonicalJson(saved.context) !== canonicalJson(context) || saved.ignoreScripts !== ignoreScripts) throw new Error('Initialization generation or options changed; use a fresh workspace')
@@ -54,14 +54,13 @@ export function initializationSession({ filename, project, context, store, ignor
     if (saved.pending && saved.pending !== project.importer) throw new Error(`Initialization is unfinished for ${saved.pending}; retry that project first`)
     checkManifests(project.workspace, saved.manifests)
   } else {
-    for (const importer of Object.keys(lock.importers ?? {})) {
+    for (const importer of selection?.all ?? Object.keys(lock.importers ?? {})) {
       if (fs.existsSync(path.join(project.workspace, importer, 'node_modules'))) throw new Error(`Untracked node_modules for ${importer}; start with a fresh workspace`)
     }
   }
   const state = saved ?? { version: 1, context, workspace: project.workspace, store, ignoreScripts, completed: [], manifests: {} }
-  const { graph } = lockfileGraph(lock)
-  const selected = selectWorkspaceImporters({ graph, importers: [project.importer] })
-  const manifests = sourceManifests(project.workspace, [...selected].map(id => id.slice('workspace:'.length)))
+  const selected = selection?.selected ?? [...selectWorkspaceImporters({ graph: lockfileGraph(lock).graph, importers: [project.importer] })].map(id => id.slice('workspace:'.length))
+  const manifests = sourceManifests(project.workspace, selected)
   if (expectedManifests) for (const [importer, digest] of Object.entries(manifests)) {
     if (expectedManifests[importer] !== digest) throw new Error(`Project catalog manifest mismatch: ${importer}`)
   }

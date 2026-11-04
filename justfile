@@ -23,8 +23,8 @@ profile-test:
     node --test profiling/test/*.test.mjs
 
 # Start the real GitHub cache experiment on the current published branch.
-cache-benchmark branch="feat/github-cache-groups":
-    gh workflow run prototype.yml --repo mizchi/pnpm-scoped-fetch-demo --ref {{quote(branch)}}
+cache-benchmark branch="feat/github-cache-groups" experiment="on-demand":
+    gh workflow run prototype.yml --repo mizchi/pnpm-scoped-fetch-demo --ref {{quote(branch)}} -f experiment={{quote(experiment)}}
 
 # Summarize downloaded benchmark artifacts.
 cache-report directory="measurements":

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { sha256 } from '../action/chunk-identity.mjs'
-import { selectProjectPlan } from '../action/project-catalog.mjs'
+import { selectProjectPlan, catalogWorkspaceSelection } from '../action/project-catalog.mjs'
 import { currentProject } from './current-project.mjs'
 import { hydrateProject, ProjectCacheMiss } from './hydrate-project.mjs'
 import { pinnedBinaryEnvironment } from './native-environment.mjs'
@@ -18,7 +18,8 @@ async function initialize({ project, filename, binary, store, cache, runInstall,
   const started = performance.now(), context = await workspaceContext(project.workspace, binary)
   const plan = cache && selectProjectPlan({ catalog: cache.catalog, context, importer: project.importer })
   if (cache && !cache.catalog.sourceManifests) throw new Error('Project catalog has no source manifest identities')
-  const session = initializationSession({ filename, project, context, store, ignoreScripts, expectedManifests: cache?.catalog.sourceManifests })
+  const session = initializationSession({ filename, project, context, store, ignoreScripts, expectedManifests: cache?.catalog.sourceManifests,
+    selection: cache && catalogWorkspaceSelection(cache.catalog, project.importer) })
   let hydration = { restored: [], requestedObjects: 0, skippedObjects: 0, validationMs: 0, restoreMs: 0, hydrateMs: 0 }, cacheMode = 'native'
   if (plan) {
     try {

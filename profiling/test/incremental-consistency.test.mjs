@@ -117,3 +117,23 @@ test('a copied session or untracked installation cannot be adopted into another 
   const copy = path.join(f.root, 'copy'); fs.cpSync(f.workspace, copy, { recursive: true })
   await assert.rejects(initializeCurrentProject({ ...f, cwd: path.join(copy, 'apps/admin'), runInstall }), /workspace changed/)
 })
+
+test('a trusted catalog reuses its workspace selection without reparsing the lockfile', async t => {
+  const f = await fixture(t)
+  f.cache.catalog.workspaceImporters = { 'apps/web': ['.', 'apps/web'], 'apps/admin': ['.', 'apps/admin'] }
+  let reads = 0
+  const read = fs.readFileSync
+  fs.readFileSync = (filename, ...args) => { if (String(filename).endsWith('pnpm-lock.yaml')) reads++; return read(filename, ...args) }
+  try {
+    const result = await initializeCurrentProject({ ...f, runInstall: async () => ({ ms: 1 }) })
+    assert.deepEqual(result.completedImporters, ['.', 'apps/web'])
+    assert.equal(reads, 3, 'Only the two context fingerprints and final wanted-lockfile check need the bytes')
+  } finally { fs.readFileSync = read }
+})
+
+test('catalog workspace selection rejects omitted anchors, duplicates and unknown importers', async t => {
+  for (const selected of [['apps/web'], ['.'], ['.', 'apps/web', 'apps/web'], ['.', 'apps/web', '../escape']]) {
+    const f = await fixture(t); f.cache.catalog.workspaceImporters = { 'apps/web': selected }
+    await assert.rejects(initializeCurrentProject({ ...f, runInstall: async () => { throw new Error('Native must not run') } }), /catalog workspace/)
+  }
+})

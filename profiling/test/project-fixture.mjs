@@ -38,7 +38,7 @@ export async function fixture(t) {
   } }
   const context = await workspaceContext(workspace, binary)
   const sourceManifests = Object.fromEntries(['.', 'apps/web', 'apps/admin'].map(importer => [importer, sha256(fs.readFileSync(path.join(workspace, importer, 'package.json')))]))
-  cache.catalog = { version: 1, context, targetBytes: 1024, layout: 'v11', projects: { 'apps/web': [object.id], 'apps/admin': [object.id] }, objects: { [object.id]: object }, index, sourceManifests }
+  cache.catalog = { version: 1, context, targetBytes: 1024, layout: 'v11', projects: { '.': [], 'apps/web': [object.id], 'apps/admin': [object.id] }, objects: { [object.id]: object }, index, sourceManifests }
   return { root, store, plan, cache, calls, file, indexFile, row, cwd, workspace, binary }
 }
 

@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises'
 import { constants, createZstdCompress, createZstdDecompress } from 'node:zlib'
 import tar from 'tar-stream'
 import { normalizedFile } from '../action/chunk-identity.mjs'
+import { storeDirectories } from './store-directories.mjs'
 
 export const TAR_ZSTD_CODEC = 'tar + zstd level 3 (streaming v1)'
 
@@ -85,21 +86,6 @@ export async function writeTarChunk({ chunk, source, filename }) {
   } finally { fs.rmSync(temporary, { recursive: true, force: true }) }
 }
 
-function checkedDirectory(directory) {
-  const stat = fs.lstatSync(directory)
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe destination directory: ${directory}`)
-}
-
-function prepareParent(directory, relative) {
-  let parent = directory
-  for (const segment of relative.split('/').slice(0, -1)) {
-    if (segment.includes(':')) throw new Error(`Unsafe destination directory: ${relative}`)
-    parent = path.join(parent, segment)
-    try { fs.mkdirSync(parent) } catch (error) { if (error.code !== 'EEXIST') throw error }
-    checkedDirectory(parent)
-  }
-}
-
 function stagedFileSink(filename) {
   let descriptor = fs.openSync(filename, 'wx', 0o600)
   function close() {
@@ -132,18 +118,21 @@ function chunkReader(chunk) {
   }
   if (!/^v[0-9]+$/.test(chunk.layout)) throw new Error('Invalid store layout')
   if (chunk.kind === 'index') {
+    const directories = new RegExp(`^${chunk.layout}/(index|index-aliases)(/[a-f0-9]{2})?/?$`)
+    const files = new RegExp(`^${chunk.layout}/(index|index-aliases)/[a-f0-9]{2}/[a-f0-9]{62}$`)
     return { maxTarBytes: chunk.tarBytes,
-      directory(header) { return header.size === 0 && new RegExp(`^${chunk.layout}/(index|index-aliases)(/[a-f0-9]{2})?/?$`).test(header.name) },
+      directory(header) { return header.size === 0 && directories.test(header.name) },
       file(header) {
-        if (!new RegExp(`^${chunk.layout}/(index|index-aliases)/[a-f0-9]{2}/[a-f0-9]{62}$`).test(header.name)) return undefined
+        if (!files.test(header.name)) return undefined
         return { path: header.name, size: header.size, mode: 0o600, metadata: true }
       }, finish() {} }
   }
   if (chunk.kind !== 'cafs' || !Number.isSafeInteger(chunk.fileCount) || chunk.fileCount < 1 || !Number.isSafeInteger(chunk.rawBytes) || chunk.rawBytes < 0) throw new Error('Invalid CAFS bounds')
   let rawBytes = 0
+  const filenames = new RegExp(`^${chunk.layout}/files/([a-f0-9]{2})/([a-f0-9]{126})(-exec)?$`)
   return { maxTarBytes: chunk.rawBytes + chunk.fileCount * 6144 + 1024,
     file(header) {
-      const match = new RegExp(`^${chunk.layout}/files/([a-f0-9]{2})/([a-f0-9]{126})(-exec)?$`).exec(header.name)
+      const match = filenames.exec(header.name)
       if (!match) return undefined
       rawBytes += header.size
       if (rawBytes > chunk.rawBytes) throw new Error('CAFS size exceeds plan bounds')
@@ -219,12 +208,12 @@ async function verifiedExisting(filename, file) {
 }
 
 export async function restoreTarChunk({ directory, reuseExisting = false, ...options }) {
-  checkedDirectory(directory)
+  const prepareParent = storeDirectories(directory, { create: true })
   const staged = fs.mkdtempSync(path.join(directory, '.chunk-'))
   try {
     const files = await readTarChunk({ ...options, stage: staged })
     for (const { file, filename } of files) {
-      prepareParent(directory, file.path)
+      prepareParent(file.path)
       const target = path.join(directory, file.path)
       if (!reuseExisting || !await verifiedExisting(target, file)) fs.linkSync(filename, target)
     }

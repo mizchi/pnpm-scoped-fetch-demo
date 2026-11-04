@@ -12,6 +12,7 @@ import { stageStore } from '../store-staging.mjs'
 import { exportScopedIndex, selectStoreScope } from '../scoped-index.mjs'
 import { archiveIndex } from '../index-archive.mjs'
 import { currentDirectories, currentMatrix, currentStrategies } from './on-demand-cases.mjs'
+import { tuningMatrix } from './tuning-cases.mjs'
 import { root, source, state, results, input, json, output, command, childEnvironment, providerSizes } from './common.mjs'
 
 const targetBytes = 67108864
@@ -66,7 +67,8 @@ async function publish(context, transport, namespace) {
   const catalogSaves = await transport.publishMany(packed.records.filter(record => record.object.kind === 'catalog'))
   assert(catalogSaves.every(row => !row.hit))
   const inventory = await providerSizes(namespace, [...saves, ...catalogSaves].map(row => row.key))
-  output('matrix', currentMatrix({ catalogDigest: packed.catalogObject.sha256, whole, scoped }))
+  output('matrix', input('benchmark-kind') === 'chunk-tuning' ? tuningMatrix(packed.catalogObject.sha256)
+    : currentMatrix({ catalogDigest: packed.catalogObject.sha256, whole, scoped }))
   json(path.join(results, 'cwd-producer.json'), { kind: 'cwd-producer', context: context.context, namespace,
     metrics: packed.metrics, fetchMs: fetching.ms, totalMs: performance.now() - started,
     catalog: packed.catalogObject, wholeStoreProviderBytes: inventory.get(objectCacheKey(whole, namespace)).bytes,

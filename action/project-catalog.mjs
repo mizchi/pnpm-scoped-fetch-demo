@@ -12,7 +12,7 @@ function checkedImporter(importer) {
       importer !== '.' && importer.split('/').some(part => !part || part === '.' || part === '..')) throw new Error(`Invalid importer: ${importer}`)
 }
 
-export function createProjectCatalog({ material, context, targetBytes, sourceManifests }) {
+export function createProjectCatalog({ material, context, targetBytes, sourceManifests, workspaceImporters }) {
   const projects = {}, objects = {}
   let index
   for (const entry of Object.keys(material.manifest.entries).sort()) {
@@ -28,9 +28,18 @@ export function createProjectCatalog({ material, context, targetBytes, sourceMan
   if (sourceManifests) for (const importer of Object.keys(projects)) {
     if (!/^[a-f0-9]{64}$/.test(sourceManifests[importer])) throw new Error(`Missing source manifest identity: ${importer}`)
   }
-  const catalog = { version: 1, context, targetBytes, layout: material.context.layout, projects, objects, index, sourceManifests }
+  const catalog = { version: 1, context, targetBytes, layout: material.context.layout, projects, objects, index, sourceManifests, workspaceImporters }
+  if (workspaceImporters) for (const importer of Object.keys(projects)) catalogWorkspaceSelection(catalog, importer)
   if (Buffer.byteLength(JSON.stringify(catalog)) > MAX_CATALOG_BYTES) throw new Error('Project catalog exceeds its size limit')
   return catalog
+}
+
+export function catalogWorkspaceSelection(catalog, importer) {
+  if (catalog.workspaceImporters === undefined) return undefined
+  const selected = catalog.workspaceImporters[importer]
+  if (!Array.isArray(selected) || !selected.includes('.') || !selected.includes(importer) || new Set(selected).size !== selected.length ||
+      selected.some(id => !Object.hasOwn(catalog.projects, id) || !Object.hasOwn(catalog.sourceManifests ?? {}, id))) throw new Error(`Invalid catalog workspace selection: ${importer}`)
+  return { all: Object.keys(catalog.projects), selected: [...selected] }
 }
 
 export function selectProjectPlan({ catalog, context, importer }) {

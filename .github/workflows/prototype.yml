@@ -5,7 +5,7 @@ on:
       experiment:
         description: Benchmark workload
         type: choice
-        options: [on-demand, scoped-controls]
+        options: [on-demand, scoped-controls, chunk-tuning]
         default: on-demand
       pnpm-ref:
         description: mizchi/pnpm commit to build
@@ -19,6 +19,7 @@ concurrency:
   cancel-in-progress: true
 env:
   CI: 'true'
+  BASELINE_CODE_REF: d4aca5a1a871a5c08b79c1c294384f7e02899ec9
   CACHE_NAMESPACE: bench-${{ github.run_id }}-${{ github.run_attempt }}
 jobs:
   binary:
@@ -149,6 +150,7 @@ jobs:
         id: measure
         with:
           mode: ${{ inputs.experiment == 'scoped-controls' && 'publish' || 'cwd-publish' }}
+          benchmark-kind: ${{ inputs.experiment }}
           namespace: ${{ env.CACHE_NAMESPACE }}
           expected-sdk-fingerprint: ${{ needs.cold.outputs.sdk-fingerprint }}
           github-token: ${{ github.token }}
@@ -173,13 +175,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check out the baseline implementation
+        if: inputs.experiment == 'chunk-tuning' && matrix.implementation == 'baseline'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASELINE_CODE_REF }}
+          path: .baseline-code
+          persist-credentials: false
       - uses: ./.github/actions/cache-benchmark-setup
         with:
           scope: ${{ matrix.entry || 'sdk' }}
+      - name: Install the baseline profiling tools
+        if: inputs.experiment == 'chunk-tuning' && matrix.implementation == 'baseline'
+        run: pnpm --dir .baseline-code/profiling install --frozen-lockfile --ignore-scripts
       - uses: ./.github/actions/cache-groups
         with:
           mode: ${{ inputs.experiment == 'scoped-controls' && 'consume' || 'cwd-consume' }}
           scenario: ${{ matrix.scenario || 'sdk' }}
+          code-root: ${{ matrix.implementation == 'baseline' && '.baseline-code' || '.' }}
+          profile: ${{ matrix.profile && 'true' || 'false' }}
           namespace: ${{ needs.producer.outputs.namespace }}
           github-token: ${{ github.token }}
           entry: ${{ matrix.entry || 'sdk' }}
@@ -188,6 +202,13 @@ jobs:
           target-bytes: ${{ matrix.target || '67108864' }}
           sample: ${{ matrix.sample }}
           plan-digest: ${{ matrix.digest }}
+      - name: Record the measured implementation revision
+        if: inputs.experiment == 'chunk-tuning'
+        env:
+          TUNING_IMPLEMENTATION: ${{ matrix.implementation }}
+          TUNING_PROFILE: ${{ matrix.profile && 'true' || 'false' }}
+          TUNING_CODE_ROOT: ${{ matrix.implementation == 'baseline' && '.baseline-code' || '.' }}
+        run: node profiling/ci/tag-tuning.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -218,6 +239,8 @@ jobs:
         run: |
           if [ "$EXPERIMENT" = scoped-controls ]; then
             node profiling/ci/report.mjs measurements
+          elif [ "$EXPERIMENT" = chunk-tuning ]; then
+            node profiling/ci/tuning-report.mjs measurements
           else
             node profiling/ci/on-demand-report.mjs measurements
           fi

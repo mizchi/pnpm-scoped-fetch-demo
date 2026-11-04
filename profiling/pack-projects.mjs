@@ -16,10 +16,11 @@ export async function packProjects({ workspace, store, binary, directory, target
   const lockfile = parse(fs.readFileSync(path.join(workspace, 'pnpm-lock.yaml'), 'utf8'))
   if (String(lockfile.lockfileVersion) !== '9.0') throw new Error('Project cache adapter requires a v9 lockfile')
   const { graph, packageIds } = lockfileGraph(lockfile), full = readStore(store, packageIds)
-  const inventories = {}, projects = {}
+  const inventories = {}, projects = {}, workspaceImporters = {}
   for (const entry of Object.keys(lockfile.importers)) {
     const scope = selectStoreScope({ full, graph, packageIds, importers: [entry] })
     inventories[entry] = scope.files
+    workspaceImporters[entry] = scope.importers
     projects[entry] = { files: scope.files.length, packages: scope.packages.length,
       rawBytes: scope.files.reduce((sum, file) => sum + file.size, 0), fingerprint: sha256(canonicalJson(scope.files)) }
   }
@@ -46,7 +47,8 @@ export async function packProjects({ workspace, store, binary, directory, target
       if (records.length % 20 === 0) console.log(`Packed ${records.length - 1}/${Object.keys(manifest.chunks).length} project chunks`)
     }
     const material = { sourceLockfile: context.lockfile, context: { layout: full.layout }, manifest, archives }
-    const catalog = createProjectCatalog({ material, context, targetBytes, sourceManifests: sourceManifests(workspace, Object.keys(lockfile.importers)) }), bytes = Buffer.from(JSON.stringify(catalog))
+    const catalog = createProjectCatalog({ material, context, targetBytes, workspaceImporters,
+      sourceManifests: sourceManifests(workspace, Object.keys(lockfile.importers)) }), bytes = Buffer.from(JSON.stringify(catalog))
     const object = { kind: 'catalog', id: catalogId(context, targetBytes), sha256: sha256(bytes), size: bytes.length }
     const filename = path.join(temporary, 'catalog.json'); fs.writeFileSync(filename, bytes); place(filename, object)
     fs.writeFileSync(path.join(directory, 'catalog.json'), bytes)

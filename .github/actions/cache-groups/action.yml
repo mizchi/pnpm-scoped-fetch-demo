@@ -7,6 +7,15 @@ inputs:
   scenario:
     default: sdk
     description: Current-directory test scenario (sdk or sequence).
+  benchmark-kind:
+    default: on-demand
+    description: Comparison workload or chunk-tuning.
+  code-root:
+    default: .
+    description: Checked-out implementation to execute in the workspace.
+  profile:
+    default: 'false'
+    description: Collect diagnostic CPU and fs profiles, outside timing samples.
   namespace:
     default: shared
     description: Cache namespace; benchmarks use a run-specific value.
