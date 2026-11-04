@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import * as cache from '@actions/cache'
-import { cachePath, objectCacheKey } from '../action/cache-plan.mjs'
+import { cachePath, objectCacheKey, isStoreObject } from '../action/cache-plan.mjs'
 
 export async function fileDigest(filename) {
   const hash = createHash('sha256')
@@ -49,11 +49,11 @@ export function createGitHubCacheTransport({ root, namespace = 'shared', concurr
     if (!hit) fs.rmSync(path.join(root, relative), { recursive: true, force: true })
     if (hit) {
       const stat = fs.lstatSync(path.join(root, relative))
-      if (stat.isSymbolicLink() || (object.kind === 'whole' ? !stat.isDirectory() : !stat.isFile())) throw new Error(`Invalid cached object: ${key}`)
+      if (stat.isSymbolicLink() || (isStoreObject(object) ? !stat.isDirectory() : !stat.isFile())) throw new Error(`Invalid cached object: ${key}`)
       if (object.size !== undefined && stat.size !== object.size) throw new Error(`Cached object size mismatch: ${key}`)
       if (object.kind === 'plan' && stat.size > 128 * 1024) throw new Error('Cache plan exceeds 128 KiB')
     }
-    return { key, hit, relative, restoreMs: performance.now() - started, innerBytes: hit && object.kind !== 'whole' ? fs.statSync(path.join(root, relative)).size : 0 }
+    return { key, hit, relative, restoreMs: performance.now() - started, innerBytes: hit && !isStoreObject(object) ? fs.statSync(path.join(root, relative)).size : 0 }
   }
   async function publish({ object, source }) {
     const relative = cachePath(object), key = objectCacheKey(object, namespace), destination = path.join(root, relative)
@@ -61,13 +61,13 @@ export function createGitHubCacheTransport({ root, namespace = 'shared', concurr
     const matched = await api.restoreCache([relative], key, [], { lookupOnly: true })
     if (matched === key) return { key, hit: true, cacheId: undefined, saveMs: 0 }
     if (!fs.existsSync(destination)) {
-      if (object.kind === 'whole') throw new Error('Stage the whole store at its fixed cache path before publishing')
+      if (isStoreObject(object)) throw new Error('Stage the store at its fixed cache path before publishing')
       try { fs.linkSync(source, destination) } catch (error) {
         if (error.code !== 'EXDEV') throw error
         fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL)
       }
     }
-    if (object.kind !== 'whole') {
+    if (!isStoreObject(object)) {
       const expected = object.kind === 'plan' ? object.sha256 : object.id
       if (expected && await fileDigest(destination) !== expected) throw new Error(`Publish content mismatch: ${key}`)
     }

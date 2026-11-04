@@ -92,6 +92,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/cache-benchmark-setup
+        with:
+          scope: sdk
       - uses: ./.github/actions/cache-groups
         id: measure
         with:
@@ -147,6 +149,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/cache-benchmark-setup
+        with:
+          scope: ${{ matrix.entry }}
       - uses: ./.github/actions/cache-groups
         with:
           mode: consume

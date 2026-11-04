@@ -15,9 +15,11 @@ The workflow runs these phases:
 2. Fetch the full workspace once. Derive scoped indexes and CAFS inventories from its lockfile graph. Require the SDK inventory to match the independent native fetch.
 3. Partition CAFS files by their consumer sets and deterministic hash prefixes, targeting 16 or 64 MiB of uncompressed content. Stream deterministic tar/zstd archives, then validate them.
 4. Save immutable objects using `@actions/cache`. Publish a small plan mapping a workload to its archive hashes. A plan contains no per-file inventory.
-5. Restore on fresh runners. Compare a full-store cache with both SDK chunk sizes, using three runners for each strategy. Also validate the app and API scopes with 64 MiB chunks.
+5. Restore on fresh runners using sparse checkouts and their workspace dependency closures. Compare a full-store cache, a scoped-store cache, and both SDK chunk sizes, using three runners for each strategy. Also validate the app and API scopes with 64 MiB chunks.
 
-The full-store baseline stores the native `files`, `index`, and `index-aliases` directories in one SDK cache entry. Chunk entries contain precompressed archives, so the SDK adds an outer archive. The report includes its compressed size rather than counting only the inner payload. Plan transfer is included in both strategies.
+The full-store baseline stores the native `files`, `index`, and `index-aliases` directories in one SDK cache entry. The scoped baseline stages only SDK payload files and its index, without an inner archive or custom hydration. Its payload fingerprint must match the independent native SDK fetch. Chunk entries contain precompressed archives, so the SDK adds an outer archive. The report includes its compressed size rather than counting only the inner payload. Plan transfer is included in every strategy.
+
+The scoped baseline isolates selection from chunking. A reduction against the full store cannot by itself establish a benefit from chunking. Summary version 2 requires all 14 warm samples and verifies that SDK consumer checkouts omit the unrelated app and API manifests.
 
 CAFS paths encode SHA-512 content identities. Restoration validates these identities, archive SHA-256, file counts, expanded sizes, normalized permissions, safe paths, and index key identities before linking staged files into a fresh store. The plan digest comes from the producer output. Frozen offline install verifies usability without registry fallback.
 

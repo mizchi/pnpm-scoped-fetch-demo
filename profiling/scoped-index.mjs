@@ -5,7 +5,7 @@ import { sha256 } from '../action/cache-groups.mjs'
 import { decodeStoreEntry } from './native-store.mjs'
 import { filesUnder } from './store-snapshot.mjs'
 
-export function selectStoreScope({ full, graph, packageIds, importers }) {
+export function selectWorkspaceImporters({ graph, importers }) {
   if (!importers.length) throw new Error('Select at least one importer')
   const isWorkspace = id => id.startsWith('workspace:')
   const projectGraph = Object.fromEntries(Object.entries(graph).filter(([id]) => isWorkspace(id))
@@ -13,6 +13,12 @@ export function selectStoreScope({ full, graph, packageIds, importers }) {
   const selected = dependencyClosure(importers.map(id => `workspace:${id}`), projectGraph, true)
   // Expanding root links would include unrelated workspace tools in every scope.
   selected.add('workspace:.')
+  return selected
+}
+
+export function selectStoreScope({ full, graph, packageIds, importers }) {
+  const isWorkspace = id => id.startsWith('workspace:')
+  const selected = selectWorkspaceImporters({ graph, importers })
   const registryGraph = Object.fromEntries(Object.entries(graph).filter(([id]) => !isWorkspace(id))
     .map(([id, record]) => [id, { dependencies: record.dependencies.filter(id => !isWorkspace(id)) }]))
   const seeds = [...selected].flatMap(id => {

@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { canonicalJson, planGroups, sha256 } from '../../action/cache-groups.mjs'
-import { createThinPlan, validateThinPlan, planId, cachePath, objectCacheKey } from '../../action/cache-plan.mjs'
+import { createThinPlan, validateThinPlan, planId, cachePath, isStoreObject } from '../../action/cache-plan.mjs'
 import { lockfileGraph, readStore } from '../native-store.mjs'
 import { exportStoreScopes } from '../export-scopes.mjs'
 import { writeTarChunk, verifyTarChunk, restoreTarChunk } from '../tar-zstd.mjs'
 import { createGitHubCacheTransport, cacheInventory, fileDigest } from '../github-cache.mjs'
 import { fileURLToPath } from 'node:url'
-import { filesUnder } from '../store-snapshot.mjs'
+import { stageStore } from '../store-staging.mjs'
+import { scenarios } from './scenarios.mjs'
 import { root, source, state, results, input, json, output, command, prepareSource, queryFor, installAndCheck } from './common.mjs'
 
 function elapsed(start) { return performance.now() - start }
@@ -29,22 +30,7 @@ async function cold(context, transport) {
   const fingerprint = sha256(canonicalJson(nativeInventory.files))
   output('sdk-fingerprint', fingerprint)
   json(path.join(results, 'cold.json'), { kind: 'cold-sdk', query, cacheMisses: 1, fetchMs: fetched.ms,
-    downloadedPackages: Number(progress[3]), nativeSdkFingerprint: fingerprint, files: nativeInventory.files.length, ...validation, totalMs, trustLockfile: true })
-}
-
-function stageWholeStore(store, layout) {
-  const target = path.join(root, '.pnpm-cache', 'whole-store')
-  fs.mkdirSync(target, { recursive: true })
-  for (const folder of ['files', 'index', 'index-aliases']) {
-    const from = path.join(store, layout, folder)
-    if (!fs.existsSync(from)) continue
-    for (const relative of filesUnder(from)) {
-      const filename = path.join(target, layout, folder, relative)
-      fs.mkdirSync(path.dirname(filename), { recursive: true })
-      fs.linkSync(path.join(from, relative), filename)
-    }
-  }
-  return target
+    downloadedPackages: Number(progress[3]), nativeSdkFingerprint: fingerprint, files: nativeInventory.files.length, checkout: context.checkout, ...validation, totalMs, trustLockfile: true })
 }
 
 async function publish(context, transport, namespace) {
@@ -78,11 +64,15 @@ async function publish(context, transport, namespace) {
       records.push({ object: plan.index, source: data.indexes[entry].archive })
     }
   }
-  const wholeId = sha256(canonicalJson({ files: data.full.files, index: data.indexes.workspace.sha256 }))
-  const whole = { kind: 'whole', id: wholeId, rawBytes: data.full.files.reduce((sum, file) => sum + file.size, 0), fileCount: data.full.files.length }
-  const wholePlan = { version: 1, layout: data.full.layout, query: queryFor(context.context, 'sdk', 0, 'whole'), objects: [whole] }
-  validateThinPlan(wholePlan, wholePlan.query); plans.push(wholePlan)
-  records.push({ object: whole, source: stageWholeStore(store, data.full.layout) })
+  for (const kind of ['whole', 'scoped']) {
+    const scope = kind === 'whole' ? 'workspace' : 'sdk', files = data.inventories[scope]
+    const object = { kind, id: sha256(canonicalJson({ files, index: data.indexes[scope].sha256 })),
+      rawBytes: files.reduce((sum, file) => sum + file.size, 0), fileCount: files.length }
+    const plan = { version: 1, layout: data.full.layout, query: queryFor(context.context, 'sdk', 0, kind), objects: [object] }
+    validateThinPlan(plan, plan.query); plans.push(plan)
+    records.push({ object, source: stageStore({ directory: path.join(root, cachePath(object)), layout: data.full.layout,
+      files, sourceFiles: data.full.sourceFiles, indexDirectory: kind === 'whole' ? store : path.join(exportDirectory, 'index-sdk') }) })
+  }
   const saves = await transport.publishMany(records)
   assert(saves.every(row => !row.hit), 'Run-specific data objects must start cold')
   const planRecords = [], planMetadata = []
@@ -98,14 +88,14 @@ async function publish(context, transport, namespace) {
   assert(planSaves.every(row => !row.hit), 'Run-specific plans must start cold')
   const matrix = []
   for (const metadata of planMetadata) {
-    const repetitions = metadata.query.entry === 'sdk' ? 3 : 1
+    const { repetitions } = scenarios.find(row => row.entry === metadata.query.entry && row.strategy === metadata.query.mode && row.targetBytes === metadata.query.targetBytes)
     for (let sample = 1; sample <= repetitions; sample++) matrix.push({ label: `${metadata.query.entry}-${metadata.query.mode}-${metadata.query.targetBytes}-${sample}`,
       entry: metadata.query.entry, strategy: metadata.query.mode, target: String(metadata.query.targetBytes), digest: metadata.digest, sample })
   }
   output('matrix', { include: matrix })
   json(path.join(results, 'producer.json'), { kind: 'producer', context: context.context, namespace,
     fetchMs: fetching.ms, exportMs, packing, saves: [...saves, ...planSaves], plans: planMetadata,
-    files: data.full.files.length, packages: data.full.packages.length, rawBytes: whole.rawBytes,
+    files: data.full.files.length, packages: data.full.packages.length, rawBytes: data.full.files.reduce((sum, file) => sum + file.size, 0),
     scopeMeasurements: data.measurements, totalMs: elapsed(started), trustLockfile: true })
 }
 
@@ -131,7 +121,7 @@ async function consume(context, transport, namespace) {
   assert(cached.every(row => row.hit), 'Expected every warm data object to hit')
   const downloadMs = elapsed(downloadStart), hydrateStart = performance.now()
   let store
-  if (strategy === 'whole') store = path.join(root, cachePath(plan.objects[0]))
+  if (isStoreObject(plan.objects[0])) store = path.join(root, cachePath(plan.objects[0]))
   else {
     store = path.join(state, 'consumer-store'); fs.mkdirSync(store)
     for (const object of [plan.index, ...plan.objects]) {
@@ -150,7 +140,7 @@ async function consume(context, transport, namespace) {
     dataObjects: cached.length, totalObjects: all.length, cacheHits: all.length,
     planRestoreMs: rootResult.restoreMs, dataRestoreWallMs: downloadMs, hydrateMs, ...validation,
     totalMs: elapsed(started), cacheObjects: all.map(row => ({ ...row, providerBytes: inventory.get(row.key).bytes })),
-    nodeMaxRssBytes: process.resourceUsage().maxRSS * 1024, trustLockfile: true }
+    nodeMaxRssBytes: process.resourceUsage().maxRSS * 1024, checkout: context.checkout, trustLockfile: true }
   json(path.join(results, 'consumer.json'), measured)
   console.log(JSON.stringify({ entry, strategy, targetBytes, sample: measured.sample, dataProviderBytes, totalObjects: all.length, totalMs: measured.totalMs }))
 }

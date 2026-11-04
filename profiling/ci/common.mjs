@@ -56,10 +56,12 @@ export async function prepareSource() {
     pnpm: await fileDigest(binary), platform: process.platform, arch: process.arch, node: process.versions.node }
   const version = await command(binary, ['--version'], { name: 'version' })
   if (!/^12\./.test(version.text.trim())) throw new Error(`Expected pnpm v12, got ${version.text.trim()}`)
-  return { binary, context, lockfile: parse(lockfile.toString()), pnpmVersion: version.text.trim() }
+  const checkoutFile = path.join(results, 'checkout.json')
+  const checkout = fs.existsSync(checkoutFile) ? JSON.parse(fs.readFileSync(checkoutFile, 'utf8')) : { sparse: false }
+  return { binary, context, lockfile: parse(lockfile.toString()), pnpmVersion: version.text.trim(), checkout }
 }
 
-export function queryFor(context, entry, targetBytes, mode = 'chunks') { return { ...context, entry, mode, targetBytes: mode === 'whole' ? 0 : targetBytes } }
+export function queryFor(context, entry, targetBytes, mode = 'chunks') { return { ...context, entry, mode, targetBytes: mode === 'chunks' ? targetBytes : 0 } }
 
 export async function installAndCheck({ binary, store, entry, lockfile }) {
   const install = await command(binary, ['--store-dir', store, 'install', '--frozen-lockfile', '--offline', '--ignore-scripts', `--filter={${entry}}...`, '--workspace-root'], { offline: true, name: 'offline-install' })

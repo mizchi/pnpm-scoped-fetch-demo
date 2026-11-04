@@ -15,7 +15,7 @@ inputs:
     description: Directus workload.
   strategy:
     default: chunks
-    description: chunks or whole baseline.
+    description: chunks, whole store, or scoped store baseline.
   target-bytes:
     default: '67108864'
     description: Uncompressed partition target.

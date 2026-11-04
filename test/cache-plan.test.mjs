@@ -37,3 +37,13 @@ test('foreign queries, unknown formats, invalid paths and oversized numeric boun
   assert.throws(() => objectCacheKey(plan.objects[0], '../bad'), /namespace/)
   assert.throws(() => validateThinPlan({ ...plan, objects: [{ ...plan.objects[0], fileCount: Number.MAX_SAFE_INTEGER }] }, query), /bounds/)
 })
+
+test('a scoped store is an independent baseline and cannot masquerade as the full store', () => {
+  const scopedQuery = { ...query, mode: 'scoped', targetBytes: 0 }
+  const object = { kind: 'scoped', id: digest('d'), rawBytes: 1000, fileCount: 4 }
+  const plan = { version: 1, query: scopedQuery, layout: 'v11', objects: [object] }
+  assert.doesNotThrow(() => validateThinPlan(plan, scopedQuery))
+  assert.equal(cachePath(object), '.pnpm-cache/scoped-store')
+  assert.notEqual(cachePath(object), cachePath({ ...object, kind: 'whole' }))
+  assert.throws(() => validateThinPlan({ ...plan, objects: [{ ...object, kind: 'whole' }] }, scopedQuery), /composition/)
+})

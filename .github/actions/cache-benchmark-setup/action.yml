@@ -1,5 +1,9 @@
 name: Set up cache benchmark
 description: Prepare tools, the verified native binary, and the pinned public monorepo.
+inputs:
+  scope:
+    default: workspace
+    description: Workload to check out with its workspace dependencies.
 runs:
   using: composite
   steps:
@@ -23,8 +27,24 @@ runs:
         sha256sum --check pnpm.sha256
         chmod +x pnpm
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      if: inputs.scope == 'workspace'
       with:
         repository: directus/directus
         ref: e0444f46909d530c4af243313a5320571992a30c
         path: benchmark-source
         persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      if: inputs.scope != 'workspace'
+      with:
+        repository: directus/directus
+        ref: e0444f46909d530c4af243313a5320571992a30c
+        path: benchmark-source
+        persist-credentials: false
+        sparse-checkout: |
+          ${{ inputs.scope }}
+          packages
+    - shell: bash
+      if: inputs.scope != 'workspace'
+      env:
+        CHECKOUT_SCOPE: ${{ inputs.scope }}
+      run: node profiling/ci/checkout.mjs "$CHECKOUT_SCOPE"

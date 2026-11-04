@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { scenarios } from './scenarios.mjs'
 
 function statistics(values) {
   assert(values.every(value => Number.isFinite(value) && value >= 0), 'Invalid measurement')
@@ -28,10 +29,12 @@ export function summarize(rows) {
     sameContext(row.query, producer.context)
     assert.equal(row.workflowRun, producer.workflowRun, 'Mixed workflow runs')
     assert.equal(row.codeSha, producer.codeSha, 'Mixed code revisions')
+    assert.equal(row.checkout?.sparse, true, 'Consumer must use a sparse checkout')
+    if (row.query.entry === 'sdk') assert(row.checkout.omittedImporters.includes('app') && row.checkout.omittedImporters.includes('api'), 'SDK checkout must omit app and API')
     for (const check of ['offlineInstall', 'moduleLoad', 'lockfileUnchanged']) assert.equal(row[check], true, `Failed ${check}`)
   }
   const groups = []
-  for (const [entry, strategy, targetBytes, repetitions] of [['sdk', 'whole', 0, 3], ['sdk', 'chunks', 67108864, 3], ['sdk', 'chunks', 16777216, 3], ['app', 'chunks', 67108864, 1], ['api', 'chunks', 67108864, 1]]) {
+  for (const { entry, strategy, targetBytes, repetitions } of scenarios) {
     const samples = []
     for (let sample = 1; sample <= repetitions; sample++) {
       const row = selected.get(`${entry}/${strategy}/${targetBytes}/${sample}`)
@@ -44,10 +47,14 @@ export function summarize(rows) {
     for (const field of ['totalProviderBytes', 'planBytes', 'totalObjects', 'planRestoreMs', 'dataRestoreWallMs', 'hydrateMs', 'installMs', 'totalMs']) group[field] = statistics(samples.map(row => row[field]))
     groups.push(group)
   }
-  assert.equal(consumers.length, 11, 'Unexpected consumer samples')
+  assert.equal(consumers.length, scenarios.reduce((sum, row) => sum + row.repetitions, 0), 'Unexpected consumer samples')
   const baseline = groups[0].totalProviderBytes.median
-  for (const group of groups) group.providerBytesReductionPercent = (1 - group.totalProviderBytes.median / baseline) * 100
-  return { version: 1, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, cold, producer, groups, consumers }
+  const scoped = groups.find(group => group.strategy === 'scoped').totalProviderBytes.median
+  for (const group of groups) {
+    group.providerBytesReductionPercent = (1 - group.totalProviderBytes.median / baseline) * 100
+    if (group.entry === 'sdk') group.providerBytesReductionVersusScopedPercent = (1 - group.totalProviderBytes.median / scoped) * 100
+  }
+  return { version: 2, workflowRun: producer.workflowRun, codeSha: producer.codeSha, context: producer.context, cold, producer, groups, consumers }
 }
 
 function readResults(directory) {
@@ -66,7 +73,7 @@ function markdown(summary) {
     'Cache bytes are GitHub REST `size_in_bytes`, including the plan and the SDK outer tar/zstd wrapper. Times exclude runner setup, checkout, binary download, and tooling installation. Each sample uses a fresh runner. SDK strategies have three samples; app/API have one.', '',
     '| Scope | Strategy | Samples | Cache MiB | Reduction | Objects | Restore s | Hydrate s | Install s | Total s (median; min–max) |',
     '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
-  for (const group of summary.groups) lines.push(`| ${group.entry} | ${group.strategy === 'whole' ? 'whole store' : `${group.targetBytes / 1048576} MiB chunks`} | ${group.samples} | ${mib(group.totalProviderBytes.median)} | ${group.providerBytesReductionPercent.toFixed(1)}% | ${group.totalObjects.median} | ${seconds(group.planRestoreMs.median + group.dataRestoreWallMs.median)} | ${seconds(group.hydrateMs.median)} | ${seconds(group.installMs.median)} | ${seconds(group.totalMs.median)}; ${seconds(group.totalMs.min)}–${seconds(group.totalMs.max)} |`)
+  for (const group of summary.groups) lines.push(`| ${group.entry} | ${group.strategy === 'whole' ? 'whole store' : group.strategy === 'scoped' ? 'scoped store' : `${group.targetBytes / 1048576} MiB chunks`} | ${group.samples} | ${mib(group.totalProviderBytes.median)} | ${group.providerBytesReductionPercent.toFixed(1)}% | ${group.totalObjects.median} | ${seconds(group.planRestoreMs.median + group.dataRestoreWallMs.median)} | ${seconds(group.hydrateMs.median)} | ${seconds(group.installMs.median)} | ${seconds(group.totalMs.median)}; ${seconds(group.totalMs.min)}–${seconds(group.totalMs.max)} |`)
   lines.push('', `Cold SDK: fetch ${seconds(summary.cold.fetchMs)} s, install ${seconds(summary.cold.installMs)} s, total ${seconds(summary.cold.totalMs)} s.`, '',
     `Producer: full fetch ${seconds(summary.producer.fetchMs)} s, scoped export ${seconds(summary.producer.exportMs)} s, total ${seconds(summary.producer.totalMs)} s.`, '',
     'The immutable public Directus lockfile is trusted for this benchmark (`trustLockfile: true`); install scripts are disabled. Every sample must pass frozen offline install, a module load, and unchanged lockfile checks. Transfer sizes exclude HTTP headers and control requests. Three samples describe this run; they do not establish p95 performance.', '')
