@@ -1,0 +1,39 @@
+name: Measure chunked pnpm cache
+description: Experimental immutable cache objects and thin plans against the GitHub cache service.
+inputs:
+  mode:
+    required: true
+    description: cold, publish, or consume
+  namespace:
+    default: shared
+    description: Cache namespace; benchmarks use a run-specific value.
+  pnpm-binary:
+    default: dist/pnpm
+    description: Verified prototype binary.
+  entry:
+    default: sdk
+    description: Directus workload.
+  strategy:
+    default: chunks
+    description: chunks or whole baseline.
+  target-bytes:
+    default: '67108864'
+    description: Uncompressed partition target.
+  sample:
+    default: '1'
+    description: Independent runner sample number.
+  plan-digest:
+    description: SHA-256 emitted by the producer for the selected query.
+  expected-sdk-fingerprint:
+    description: Native cold SDK inventory fingerprint used by the producer check.
+  github-token:
+    required: true
+    description: Read-only token used to measure provider cache archive sizes.
+outputs:
+  sdk-fingerprint:
+    description: Resolved SDK content inventory from the native cold fetch.
+  matrix:
+    description: Consumer scenarios and trusted plan digests.
+runs:
+  using: node24
+  main: main.mjs

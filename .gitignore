@@ -3,3 +3,7 @@
 node_modules/
 prototype/
 dist/
+
+.pnpm-cache/
+.measurements/
+benchmark-source/
