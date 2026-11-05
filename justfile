@@ -26,6 +26,10 @@ profile-test:
 cache-benchmark branch="feat/github-cache-groups" experiment="on-demand":
     gh workflow run prototype.yml --repo mizchi/pnpm-scoped-fetch-demo --ref {{quote(branch)}} -f experiment={{quote(experiment)}}
 
+# Profile direct native installs using the pinned SDK cache from the tuning run.
+native-diagnostics branch="feat/github-cache-groups":
+    gh workflow run prototype.yml --repo mizchi/pnpm-scoped-fetch-demo --ref {{quote(branch)}} -f experiment=native-diagnostics
+
 # Summarize downloaded benchmark artifacts.
 cache-report directory="measurements":
     node profiling/ci/report.mjs {{quote(directory)}}

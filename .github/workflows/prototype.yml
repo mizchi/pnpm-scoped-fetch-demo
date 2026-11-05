@@ -5,7 +5,7 @@ on:
       experiment:
         description: Benchmark workload
         type: choice
-        options: [on-demand, scoped-controls, chunk-tuning]
+        options: [on-demand, scoped-controls, chunk-tuning, native-diagnostics]
         default: on-demand
       pnpm-ref:
         description: mizchi/pnpm commit to build
@@ -22,7 +22,11 @@ env:
   BASELINE_CODE_REF: d4aca5a1a871a5c08b79c1c294384f7e02899ec9
   CACHE_NAMESPACE: bench-${{ github.run_id }}-${{ github.run_attempt }}
 jobs:
+  native-diagnostics:
+    if: inputs.experiment == 'native-diagnostics'
+    uses: ./.github/workflows/native-diagnostics.yml
   binary:
+    if: inputs.experiment != 'native-diagnostics'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
