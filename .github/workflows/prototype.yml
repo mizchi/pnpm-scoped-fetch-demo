@@ -222,7 +222,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   report:
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.experiment != 'native-diagnostics' }}
     needs: [cold, producer, warm, consistency]
     runs-on: ubuntu-latest
     steps:
