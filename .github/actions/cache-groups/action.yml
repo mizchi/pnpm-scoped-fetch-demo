@@ -3,7 +3,7 @@ description: Experimental immutable cache objects and thin plans against the Git
 inputs:
   mode:
     required: true
-    description: cold, publish, consume, or their cwd- equivalents
+    description: cold, publish, consume, their cwd- equivalents, or native-diagnostics
   scenario:
     default: sdk
     description: Current-directory test scenario (sdk or sequence).

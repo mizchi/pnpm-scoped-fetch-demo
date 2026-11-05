@@ -60,10 +60,13 @@ jobs:
             packages
       - run: node profiling/ci/checkout.mjs sdk
       - name: Measure native commands after a real cache restore
+        uses: ./.github/actions/cache-groups
+        with:
+          mode: native-diagnostics
+          github-token: ${{ github.token }}
         env:
           NATIVE_SAMPLE: ${{ matrix.sample }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: node profiling/ci/native-diagnostics.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
